@@ -16,6 +16,7 @@ I verified it works in my main repo, in my [demo AI assistant that can hear, thi
 # Roadmap
 
 - [ ] Tool run support
+- [ ] State management 
 - [ ] Web search support
 - [ ] File upload + search 
 - [ ] Code interpreter 

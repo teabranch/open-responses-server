@@ -20,4 +20,5 @@ I verified it works in my main repo, in my [demo AI assistant that can hear, thi
 - [ ] Web search support
 - [ ] File upload + search 
 - [ ] Code interpreter 
+- [ ] Computer use
 

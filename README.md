@@ -13,3 +13,10 @@ I want to support the stateful features the other libraries don’t want to supp
 
 I verified it works in my main repo, in my [demo AI assistant that can hear, think and speak](https://github.com/OriNachum/autonomous-intelligence/tree/main/baby-tau) with the docker-compose-codex.yaml
 
+# Roadmap
+
+- [ ] Tool run support
+- [ ] Web search support
+- [ ] File upload + search 
+- [ ] Code interpreter 
+

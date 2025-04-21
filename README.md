@@ -16,6 +16,8 @@ I verified it works in my main repo, in my [demo AI assistant that can hear, thi
 # Roadmap
 
 - [x] Tool run support (Tested with llama 3.2 3b on Ollama)
+- [ ] Validate work from CLI
+- [ ] dotenv support
 - [ ] State management (long term, not just in-memory)
 - [ ] Web search support
 - [ ] File upload + search 

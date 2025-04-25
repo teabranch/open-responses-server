@@ -1,4 +1,4 @@
-`#!/usr/bin/env python3
+#!/usr/bin/env python3
 """
 Release script for openai-responses-server.
 This script:

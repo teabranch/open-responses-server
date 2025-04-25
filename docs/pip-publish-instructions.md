@@ -94,7 +94,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='openai-to-codex-cli',
-    version='0.1.0',
+    version='0.1.1',
     packages=find_packages(where='src'),
     package_dir={'': 'src'},
     install_requires=[
@@ -135,7 +135,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "openai-to-codex-cli"
-version = "0.1.0"
+version = "0.1.1"
 authors = [
   { name="Ori Nachum", email="ori.nachum@example.com" },
 ]

@@ -1,9 +1,15 @@
 #!/usr/bin/env python3
 from setuptools import setup, find_packages
+import os
+import sys
+
+# Add src to path so we can import the version
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
+from openai_to_codex_wrapper.version import __version__
 
 setup(
     name='openai-to-codex-wrapper',
-    version='0.1.0',
+    version=__version__,
     packages=find_packages(where='src'),
     package_dir={'': 'src'},
     install_requires=[

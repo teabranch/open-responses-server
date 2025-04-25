@@ -4,10 +4,19 @@ import argparse
 import subprocess
 import os
 import json
+import sys
+import logging
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
 load_dotenv()
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger("otc_cli")
 
 DEFAULT_HOST = os.environ.get("API_ADAPTER_HOST", "0.0.0.0")
 DEFAULT_PORT = os.environ.get("API_ADAPTER_PORT", "8080")
@@ -15,25 +24,29 @@ DEFAULT_PORT = os.environ.get("API_ADAPTER_PORT", "8080")
 def start_server(host=DEFAULT_HOST, port=DEFAULT_PORT):
     """Starts the FastAPI server."""
     try:
-        # Import path adjusted to work as a package
-        from openai_to_codex_wrapper import server
-        import uvicorn
+        # Ensure log directory exists
+        os.makedirs("./log", exist_ok=True)
         
-        print(f"Starting server on {host}:{port}...")
-        # Run the server using uvicorn directly from Python
-        uvicorn.run("openai_to_codex_wrapper.server:app", host=host, port=int(port), reload=False)
+        # Import modules
+        import uvicorn
+        from openai_to_codex_wrapper.server import app
+        
+        logger.info(f"Starting server on {host}:{port}...")
+        # Run the server using uvicorn directly
+        uvicorn.run("openai_to_codex_wrapper.server:app", host=host, port=int(port))
     except ImportError as e:
-        print(f"Error importing server module: {e}")
-        print("Trying to start server using subprocess...")
+        logger.error(f"Error importing server module: {e}")
+        logger.info("Trying to start server using subprocess...")
         try:
             subprocess.run(
                 ["uvicorn", "openai_to_codex_wrapper.server:app", "--host", host, "--port", str(port)],
                 check=True
             )
         except subprocess.CalledProcessError as e:
-            print(f"Error starting server: {e}")
+            logger.error(f"Error starting server: {e}")
         except FileNotFoundError:
-            print("Error: uvicorn not found. Please install it (pip install uvicorn).")
+            logger.error("Error: uvicorn not found. Please install it (pip install uvicorn).")
+            print("\nUvicorn not found. Please install it with: pip install uvicorn")
 
 def configure_server():
     """Allows the user to configure server settings (e.g., host, port)."""
@@ -53,41 +66,65 @@ def configure_server():
     # Configure API key
     api_key = input(f"Enter OpenAI API key (default: dummy-key): ") or "dummy-key"
 
-    env_file_path = ".env"
+    # Get current directory to store the .env file
+    current_dir = os.getcwd()
+    env_file_path = os.path.join(current_dir, ".env")
     env_vars = {}
+    
+    # Read existing .env file if it exists
     if os.path.exists(env_file_path):
         with open(env_file_path, "r") as f:
             for line in f:
                 line = line.strip()
                 if line and not line.startswith("#"):
-                    key, value = line.split("=", 1)
-                    env_vars[key.strip()] = value.strip()
+                    try:
+                        key, value = line.split("=", 1)
+                        env_vars[key.strip()] = value.strip()
+                    except ValueError:
+                        pass  # Skip lines that don't have a key=value format
 
+    # Update environment variables
     env_vars["API_ADAPTER_HOST"] = host
     env_vars["API_ADAPTER_PORT"] = str(port)
     env_vars["OPENAI_BASE_URL_INTERNAL"] = openai_internal
     env_vars["OPENAI_BASE_URL"] = openai_external
     env_vars["OPENAI_API_KEY"] = api_key
 
+    # Write configuration to .env file
     with open(env_file_path, "w") as f:
         for key, value in env_vars.items():
             f.write(f"{key}={value}\n")
 
-    print(f"Server configuration saved to {env_file_path}. Restart the server to apply changes.")
+    print(f"Server configuration saved to {env_file_path}.")
+    print("Server configured successfully. Use 'otc start' to start the server.")
 
 def help_command():
     """Displays help information."""
-    print("Usage: otc <command> [options]")
+    print("OpenAI to Codex Wrapper CLI")
+    print("===========================")
+    print("\nUsage: otc <command> [options]")
     print("\nCommands:")
     print("  help       Show this help message.")
     print("  configure  Configure server settings (host, port, API URLs, API key).")
     print("  start      Start the FastAPI server.")
+    print("\nOptions:")
+    print("  --version  Show version information.")
+
+def show_version():
+    """Displays version information."""
+    from openai_to_codex_wrapper import __version__
+    print(f"OpenAI to Codex Wrapper CLI v{__version__}")
 
 def main():
     parser = argparse.ArgumentParser(description="CLI to manage the OpenAI to Codex Wrapper API server.")
     parser.add_argument("command", nargs="?", default="help", help="Command to execute (help, configure, start)")
+    parser.add_argument("--version", action="store_true", help="Show version information")
 
     args = parser.parse_args()
+
+    if args.version:
+        show_version()
+        return
 
     if args.command == "start":
         start_server()

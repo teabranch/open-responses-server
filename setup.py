@@ -15,7 +15,7 @@ setup(
     ],
     entry_points={
         'console_scripts': [
-            'otc=cli:main',
+            'otc=openai_to_codex_wrapper.cli:main',
         ],
     },
     author='Ori Nachum',

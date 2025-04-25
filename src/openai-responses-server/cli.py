@@ -29,17 +29,17 @@ def start_server(host=DEFAULT_HOST, port=DEFAULT_PORT):
         
         # Import modules
         import uvicorn
-        from openai_to_codex_wrapper.server import app
+        from openai_responses_server.server import app
         
         logger.info(f"Starting server on {host}:{port}...")
         # Run the server using uvicorn directly
-        uvicorn.run("openai_to_codex_wrapper.server:app", host=host, port=int(port))
+        uvicorn.run("openai_responses_server.server:app", host=host, port=int(port))
     except ImportError as e:
         logger.error(f"Error importing server module: {e}")
         logger.info("Trying to start server using subprocess...")
         try:
             subprocess.run(
-                ["uvicorn", "openai_to_codex_wrapper.server:app", "--host", host, "--port", str(port)],
+                ["uvicorn", "openai_responses_server.server:app", "--host", host, "--port", str(port)],
                 check=True
             )
         except subprocess.CalledProcessError as e:
@@ -100,7 +100,7 @@ def configure_server():
 
 def help_command():
     """Displays help information."""
-    print("OpenAI to Codex Wrapper CLI")
+    print("OpenAI Responses API Server CLI")
     print("===========================")
     print("\nUsage: otc <command> [options]")
     print("\nCommands:")
@@ -112,11 +112,11 @@ def help_command():
 
 def show_version():
     """Displays version information."""
-    from openai_to_codex_wrapper import __version__
-    print(f"OpenAI to Codex Wrapper CLI v{__version__}")
+    from openai_responses_server import __version__
+    print(f"OpenAI Responses API Server CLI v{__version__}")
 
 def main():
-    parser = argparse.ArgumentParser(description="CLI to manage the OpenAI to Codex Wrapper API server.")
+    parser = argparse.ArgumentParser(description="CLI to manage the OpenAI Responses API Server.")
     parser.add_argument("command", nargs="?", default="help", help="Command to execute (help, configure, start)")
     parser.add_argument("--version", action="store_true", help="Show version information")
 

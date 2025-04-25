@@ -63,7 +63,7 @@ def help_command():
     print("  start      Start the FastAPI server.")
 
 def main():
-    parser = argparse.ArgumentParser(description="CLI to manage the OpenAI to Codex Wrapper API server.")
+    parser = argparse.ArgumentParser(description="CLI to manage the OpenAI Responses API server.")
     parser.add_argument("command", help="Subcommand to execute (help, configure, start)")
 
     args = parser.parse_args()
@@ -112,10 +112,10 @@ setup(
     },
     author='Ori Nachum',
     author_email='ori.nachum@gmail.com',
-    description='CLI to manage the Responses API Wrapper server',
+    description='CLI to manage the Responses API server',
     long_description=open('README.md').read(),
     long_description_content_type='text/markdown',
-    url='https://github.com/teabranch/openai-to-codex-wrapper',
+    url='https://github.com/teabranch/openai-responses-server',
     classifiers=[
         'Programming Language :: Python :: 3',
         'License :: OSI Approved :: MIT License',
@@ -139,7 +139,7 @@ version = "0.1.1"
 authors = [
   { name="Ori Nachum", email="ori.nachum@example.com" },
 ]
-description = "CLI to manage the OpenAI to Codex Wrapper API server"
+description = "CLI to manage the OpenAI Responses API server"
 readme = "README.md"
 requires-python = ">=3.7"
 classifiers = [

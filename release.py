@@ -1,6 +1,6 @@
-#!/usr/bin/env python3
+`#!/usr/bin/env python3
 """
-Release script for openai-to-codex-wrapper.
+Release script for openai-responses-server.
 This script:
 1. Updates the version number in version.py
 2. Creates a git commit and tag with the new version
@@ -16,7 +16,7 @@ import sys
 
 def update_version(new_version):
     """Update the version in version.py"""
-    version_file = "src/openai_to_codex_wrapper/version.py"
+    version_file = "src/openai-responses-server/version.py"
     
     with open(version_file, "r") as f:
         content = f.read()
@@ -42,7 +42,7 @@ def git_commit_and_tag(version):
             return False
         
         # Commit version change
-        subprocess.run(["git", "add", "src/openai_to_codex_wrapper/version.py"], check=True)
+        subprocess.run(["git", "add", "src/openai-responses-server/version.py"], check=True)
         subprocess.run(["git", "commit", "-m", f"Bump version to {version}"], check=True)
         
         # Create tag
@@ -98,7 +98,7 @@ def validate_version(version):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Release script for openai-to-codex-wrapper")
+    parser = argparse.ArgumentParser(description="Release script for openai-responses-server")
     parser.add_argument("version", help="New version number (e.g., 0.1.2)")
     parser.add_argument("--no-publish", action="store_true", help="Don't publish to PyPI")
     

@@ -45,7 +45,7 @@ jobs:
     environment:
       name: pypi
       # OPTIONAL: uncomment and update with your PyPI project URL
-      url: https://pypi.org/project/openai-to-codex-wrapper
+      url: https://pypi.org/project/openai-responses-server
 
     steps:
       - name: Retrieve release distributions

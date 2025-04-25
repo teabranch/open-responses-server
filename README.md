@@ -1,3 +1,6 @@
+# Note - changed to openai-responses-server to better reflect the nature of this library.
+
+
 # openai-to-codex-wrapper
 Wraps any OpenAI API interface so it supports Codex. Adding any missing stateful features. Ollama and Vllm compliant 
 

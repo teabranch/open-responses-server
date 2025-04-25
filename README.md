@@ -1,18 +1,9 @@
-# Note - changed to openai-responses-server to better reflect the nature of this library.
-
-
-# openai-to-codex-wrapper
-Wraps any OpenAI API interface so it supports Codex. Adding any missing stateful features. Ollama and Vllm compliant 
-
-OpenAI had released their version of coding assistant as open source.
-
-No big model library supports their Resources api yet, so they can’t work with it.
-
-This library wraps any OpenAI compliant library and gaps resources api via chat completions endpoint.
+# openai-responses-server
+A server the serves any AI provider with OpenAI ChatCompletions as a Responses API.
+I means it manages the stateful component of Responses API, and bridges Ollama, Vllm, LiteLLM and any other AI serving library.
+This means you can use OpenAI's new coding assistant "Codex", that needs Responses API endpoints.
 
 It is still missing some features, but I would appreciate your support in stars, issues, suggestions and even pull requests if you are inclined for it.
-
-I want to support the stateful features the other libraries don’t want to support and are needed for Codex (and more).
 
 I verified it works in my main repo, in my [demo AI assistant that can hear, think and speak](https://github.com/OriNachum/autonomous-intelligence/tree/main/baby-tau) with the docker-compose-codex.yaml
 

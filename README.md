@@ -7,6 +7,8 @@ It is still missing some features, but I would appreciate your support in stars,
 
 I verified it works in my main repo, in my [demo AI assistant that can hear, think and speak](https://github.com/OriNachum/autonomous-intelligence/tree/main/baby-tau) with the docker-compose-codex.yaml
 
+Install today via pip: [openai-responses-server](https://pypi.org/project/openai-responses-server)
+
 # Roadmap
 
 - [x] Tool run support (Tested with llama 3.2 3b on Ollama)
@@ -14,7 +16,8 @@ I verified it works in my main repo, in my [demo AI assistant that can hear, thi
 - [ ] dotenv support
 - [ ] State management (long term, not just in-memory)
 - [ ] Web search support
-- [ ] File upload + search 
+- [ ] File upload + search
+  - [ ] **graphiti (based on neo4j)**
 - [ ] Code interpreter 
 - [ ] Computer use
 

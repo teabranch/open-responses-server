@@ -16,7 +16,8 @@ Install today via pip: [openai-responses-server](https://pypi.org/project/openai
 - [ ] dotenv support
 - [ ] State management (long term, not just in-memory)
 - [ ] Web search support
-- [ ] File upload + search 
+- [ ] File upload + search
+  - [ ] **graphiti (based on neo4j)**
 - [ ] Code interpreter 
 - [ ] Computer use
 

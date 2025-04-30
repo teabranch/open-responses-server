@@ -15,7 +15,7 @@ Install today via pip: [openai-responses-server](https://pypi.org/project/openai
 - [ ] Validate work from CLI
 - [ ] dotenv support
 - [ ] State management (long term, not just in-memory)
-- [ ] Web search support
+- [ ] Web search support (crawl4ai)
 - [ ] File upload + search
   - [ ] **graphiti (based on neo4j)**
 - [ ] Code interpreter 

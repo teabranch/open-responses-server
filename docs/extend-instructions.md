@@ -12,6 +12,8 @@ This document provides instructions for extending the OpenAI Responses Server wi
 6. [Configuration](#configuration)
 7. [Security Considerations](#security-considerations)
 8. [Testing](#testing)
+9. [File Search Engine](#file-search-engine)
+10. [Web Search Engine](#web-search-engine)
 
 ## Overview
 
@@ -68,7 +70,7 @@ The extension architecture follows the tool-based approach compatible with OpenA
 ### 1. Install Required Packages
 
 ```bash
-pip install serpapi requests beautifulsoup4 fastapi-utils
+pip install crawl4ai
 ```
 
 ### 2. Create Web Search Module
@@ -78,198 +80,59 @@ Create a new file `web_search.py` in the `src/openai_responses_server` directory
 ```python
 #!/usr/bin/env python3
 
-import os
-import json
 import logging
-from typing import List, Dict, Any, Optional
-import requests
-from bs4 import BeautifulSoup
-from dotenv import load_dotenv
-
-# Load environment variables
-load_dotenv()
+from crawl4ai import Crawl4AI
 
 # Configure logging
 logger = logging.getLogger("web_search")
 
-# API keys from environment
-SERPAPI_KEY = os.environ.get("SERPAPI_KEY")
-GOOGLE_SEARCH_KEY = os.environ.get("GOOGLE_SEARCH_KEY")
-GOOGLE_CSE_ID = os.environ.get("GOOGLE_CSE_ID")
+class WebSearch:
+    """Web search using Crawl4AI."""
 
-class WebSearchProvider:
-    """Base class for web search providers"""
-    
-    async def search(self, query: str, num_results: int = 5) -> List[Dict[str, Any]]:
+    def __init__(self):
+        self.crawler = Crawl4AI()
+
+    async def search(self, query: str, num_results: int = 5):
         """
-        Search the web using the provider.
-        
+        Perform a web search.
+
         Args:
-            query: The search query
-            num_results: Number of results to return
-            
+            query: The search query.
+            num_results: Number of results to return.
+
         Returns:
-            List of search results with title, link, and snippet
-        """
-        raise NotImplementedError("Subclasses must implement search()")
-    
-    async def fetch_content(self, url: str) -> Optional[str]:
-        """
-        Fetch and extract content from a webpage.
-        
-        Args:
-            url: The URL to fetch
-            
-        Returns:
-            Extracted text content from the webpage
+            List of search results with title, link, and snippet.
         """
         try:
-            headers = {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-            }
-            response = requests.get(url, headers=headers, timeout=10)
-            response.raise_for_status()
-            
-            soup = BeautifulSoup(response.text, 'html.parser')
-            
-            # Remove script and style elements
-            for script in soup(["script", "style", "header", "footer", "nav"]):
-                script.extract()
-                
-            # Extract text
-            text = soup.get_text(separator="\n", strip=True)
-            
-            # Clean up text
-            lines = (line.strip() for line in text.splitlines())
-            chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
-            text = '\n'.join(chunk for chunk in chunks if chunk)
-            
-            # Truncate if too long
-            if len(text) > 8000:
-                text = text[:8000] + "... [content truncated]"
-                
-            return text
+            results = self.crawler.search(query, limit=num_results)
+            return [
+                {
+                    "title": result.get("title", "No title"),
+                    "link": result.get("url", ""),
+                    "snippet": result.get("snippet", "No description"),
+                }
+                for result in results
+            ]
+        except Exception as e:
+            logger.error(f"Error during web search: {str(e)}")
+            return []
+
+    async def fetch_content(self, url: str):
+        """
+        Fetch and extract content from a webpage.
+
+        Args:
+            url: The URL to fetch.
+
+        Returns:
+            Extracted text content from the webpage.
+        """
+        try:
+            content = self.crawler.fetch(url)
+            return content[:8000] if len(content) > 8000 else content
         except Exception as e:
             logger.error(f"Error fetching content from {url}: {str(e)}")
             return None
-
-class SerpApiProvider(WebSearchProvider):
-    """SerpAPI search provider"""
-    
-    def __init__(self, api_key: str):
-        self.api_key = api_key
-        self.base_url = "https://serpapi.com/search"
-        
-    async def search(self, query: str, num_results: int = 5) -> List[Dict[str, Any]]:
-        try:
-            params = {
-                "q": query,
-                "api_key": self.api_key,
-                "engine": "google",
-                "num": num_results
-            }
-            
-            response = requests.get(self.base_url, params=params)
-            response.raise_for_status()
-            data = response.json()
-            
-            results = []
-            if "organic_results" in data:
-                for item in data["organic_results"][:num_results]:
-                    results.append({
-                        "title": item.get("title", "No title"),
-                        "link": item.get("link", ""),
-                        "snippet": item.get("snippet", "No description")
-                    })
-            
-            return results
-        except Exception as e:
-            logger.error(f"Error searching with SerpAPI: {str(e)}")
-            return []
-
-class GoogleCustomSearchProvider(WebSearchProvider):
-    """Google Custom Search Engine provider"""
-    
-    def __init__(self, api_key: str, cse_id: str):
-        self.api_key = api_key
-        self.cse_id = cse_id
-        self.base_url = "https://www.googleapis.com/customsearch/v1"
-        
-    async def search(self, query: str, num_results: int = 5) -> List[Dict[str, Any]]:
-        try:
-            params = {
-                "key": self.api_key,
-                "cx": self.cse_id,
-                "q": query,
-                "num": min(num_results, 10)  # API limit is 10
-            }
-            
-            response = requests.get(self.base_url, params=params)
-            response.raise_for_status()
-            data = response.json()
-            
-            results = []
-            if "items" in data:
-                for item in data["items"][:num_results]:
-                    results.append({
-                        "title": item.get("title", "No title"),
-                        "link": item.get("link", ""),
-                        "snippet": item.get("snippet", "No description")
-                    })
-            
-            return results
-        except Exception as e:
-            logger.error(f"Error searching with Google CSE: {str(e)}")
-            return []
-
-# Factory function to get the appropriate search provider
-def get_search_provider() -> WebSearchProvider:
-    """Get the configured search provider based on environment variables"""
-    if SERPAPI_KEY:
-        return SerpApiProvider(SERPAPI_KEY)
-    elif GOOGLE_SEARCH_KEY and GOOGLE_CSE_ID:
-        return GoogleCustomSearchProvider(GOOGLE_SEARCH_KEY, GOOGLE_CSE_ID)
-    else:
-        raise ValueError("No search provider configured. Set SERPAPI_KEY or GOOGLE_SEARCH_KEY and GOOGLE_CSE_ID environment variables.")
-
-# Main search function
-async def web_search(query: str, num_results: int = 5) -> Dict[str, Any]:
-    """
-    Search the web using the configured provider.
-    
-    Args:
-        query: The search query
-        num_results: Number of results to return
-        
-    Returns:
-        Dictionary with search results and metadata
-    """
-    provider = get_search_provider()
-    results = await provider.search(query, num_results)
-    
-    return {
-        "query": query,
-        "results": results,
-        "result_count": len(results)
-    }
-
-async def fetch_webpage_content(url: str) -> Dict[str, Any]:
-    """
-    Fetch and extract content from a webpage.
-    
-    Args:
-        url: The URL to fetch
-        
-    Returns:
-        Dictionary with URL and extracted content
-    """
-    provider = get_search_provider()
-    content = await provider.fetch_content(url)
-    
-    return {
-        "url": url,
-        "content": content if content else "Failed to retrieve content."
-    }
 ```
 
 ### 3. Define Tool Schema
@@ -435,219 +298,31 @@ if "tools" not in request_data or not request_data["tools"]:
 ### 1. Install Required Packages
 
 ```bash
-pip install langchain chromadb sentence-transformers tiktoken
+pip install graphiti-core
 ```
 
 ### 2. Create RAG Module
 
-Create a new file `rag.py` in the `src/openai_responses_server` directory:
+Update the RAG module to use OpenAI's file endpoints for file management and Graphiti for indexing and retrieval. Example:
 
 ```python
-#!/usr/bin/env python3
+import openai
+from graphiti import Graphiti
 
-import os
-import logging
-from typing import List, Dict, Any, Optional
-import json
-from pathlib import Path
-import tempfile
+class RAG:
+    def __init__(self):
+        self.graph = Graphiti()
 
-from langchain.vectorstores import Chroma
-from langchain.embeddings import HuggingFaceEmbeddings
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.document_loaders import TextLoader, PyPDFLoader
-from langchain.schema import Document
-from dotenv import load_dotenv
+    async def add_file(self, file_path: str):
+        """Upload a file to OpenAI and index it with Graphiti."""
+        with open(file_path, "rb") as f:
+            response = openai.File.create(file=f, purpose="answers")
+            file_id = response["id"]
+            self.graph.index_file(file_path, file_id)
 
-# Load environment variables
-load_dotenv()
-
-# Configure logging
-logger = logging.getLogger("rag_module")
-
-# Configuration from environment variables
-VECTOR_DB_PATH = os.environ.get("VECTOR_DB_PATH", "./data/vector_db")
-EMBEDDING_MODEL = os.environ.get("EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
-
-class RAGSystem:
-    """Retrieval-Augmented Generation system using vector database"""
-    
-    def __init__(self, persist_directory: str = VECTOR_DB_PATH, embedding_model: str = EMBEDDING_MODEL):
-        """
-        Initialize the RAG system.
-        
-        Args:
-            persist_directory: Directory to store the vector database
-            embedding_model: HuggingFace model to use for embeddings
-        """
-        self.persist_directory = persist_directory
-        self.embedding_model = embedding_model
-        
-        # Create directory if it doesn't exist
-        Path(persist_directory).mkdir(parents=True, exist_ok=True)
-        
-        # Initialize embeddings
-        self.embeddings = HuggingFaceEmbeddings(model_name=embedding_model)
-        
-        # Initialize vector store
-        try:
-            self.vector_store = Chroma(
-                persist_directory=persist_directory,
-                embedding_function=self.embeddings
-            )
-            logger.info(f"Loaded vector store from {persist_directory}")
-        except Exception as e:
-            logger.warning(f"Could not load existing vector store: {str(e)}. Creating new one.")
-            self.vector_store = Chroma(
-                persist_directory=persist_directory,
-                embedding_function=self.embeddings
-            )
-    
-    async def query(self, query_text: str, num_results: int = 3) -> List[Dict[str, Any]]:
-        """
-        Query the RAG system for relevant documents.
-        
-        Args:
-            query_text: The query text
-            num_results: Maximum number of results to return
-            
-        Returns:
-            List of relevant documents with content and metadata
-        """
-        try:
-            docs = self.vector_store.similarity_search(query_text, k=num_results)
-            
-            results = []
-            for doc in docs:
-                results.append({
-                    "content": doc.page_content,
-                    "metadata": doc.metadata
-                })
-            
-            return results
-        except Exception as e:
-            logger.error(f"Error querying vector store: {str(e)}")
-            return []
-    
-    async def add_text(self, text: str, metadata: Dict[str, Any]) -> bool:
-        """
-        Add text to the RAG system.
-        
-        Args:
-            text: The text to add
-            metadata: Metadata associated with the text
-            
-        Returns:
-            True if successful, False otherwise
-        """
-        try:
-            # Split text into chunks
-            text_splitter = RecursiveCharacterTextSplitter(
-                chunk_size=1000,
-                chunk_overlap=100
-            )
-            chunks = text_splitter.split_text(text)
-            
-            # Convert to documents
-            documents = [Document(page_content=chunk, metadata=metadata) for chunk in chunks]
-            
-            # Add to vector store
-            self.vector_store.add_documents(documents)
-            self.vector_store.persist()
-            
-            return True
-        except Exception as e:
-            logger.error(f"Error adding text to vector store: {str(e)}")
-            return False
-    
-    async def add_document(self, file_path: str, metadata: Dict[str, Any] = None) -> bool:
-        """
-        Add a document file to the RAG system.
-        
-        Args:
-            file_path: Path to the document file
-            metadata: Additional metadata
-            
-        Returns:
-            True if successful, False otherwise
-        """
-        try:
-            if metadata is None:
-                metadata = {}
-            
-            # Add filename to metadata
-            file_name = Path(file_path).name
-            metadata["source"] = file_name
-            
-            # Load document based on file extension
-            extension = file_path.lower().split(".")[-1]
-            
-            if extension == "txt":
-                loader = TextLoader(file_path)
-            elif extension == "pdf":
-                loader = PyPDFLoader(file_path)
-            else:
-                logger.error(f"Unsupported file format: {extension}")
-                return False
-            
-            documents = loader.load()
-            
-            # Split into chunks
-            text_splitter = RecursiveCharacterTextSplitter(
-                chunk_size=1000,
-                chunk_overlap=100
-            )
-            split_documents = text_splitter.split_documents(documents)
-            
-            # Add documents to vector store
-            self.vector_store.add_documents(split_documents)
-            self.vector_store.persist()
-            
-            return True
-        except Exception as e:
-            logger.error(f"Error adding document to vector store: {str(e)}")
-            return False
-
-
-# Initialize RAG system
-rag_system = RAGSystem()
-
-async def rag_query(query: str, num_results: int = 3) -> Dict[str, Any]:
-    """
-    Query the RAG system for relevant information.
-    
-    Args:
-        query: The query text
-        num_results: Maximum number of results to return
-        
-    Returns:
-        Dictionary with query results
-    """
-    results = await rag_system.query(query, num_results)
-    
-    return {
-        "query": query,
-        "results": results,
-        "result_count": len(results)
-    }
-
-async def add_to_knowledge_base(text: str, source: str) -> Dict[str, Any]:
-    """
-    Add text to the knowledge base.
-    
-    Args:
-        text: The text to add
-        source: Source identifier for the text
-        
-    Returns:
-        Status of the operation
-    """
-    success = await rag_system.add_text(text, {"source": source})
-    
-    return {
-        "success": success,
-        "source": source
-    }
+    async def query(self, query: str, num_results: int = 3):
+        """Query indexed files for relevant information."""
+        return self.graph.query(query, limit=num_results)
 ```
 
 ### 3. Update Server.py for RAG
@@ -785,3 +460,44 @@ curl -X POST http://localhost:8080/tools/rag_query \
 ### 3. Test Combined Capabilities
 
 Make a request to the `/responses` endpoint with a query that might benefit from both web search and RAG capabilities.
+
+## File Search Engine
+
+For file search capabilities, consider integrating [Graphiti](https://github.com/getzep/graphiti). Graphiti is a framework for building and querying temporally-aware knowledge graphs, specifically tailored for AI agents operating in dynamic environments. It supports hybrid semantic, keyword, and graph-based search methods, making it suitable for advanced file search and retrieval tasks.
+
+### Installation
+
+To install Graphiti, use the following command:
+
+```bash
+pip install graphiti-core[anthropic,groq,google-genai]
+```
+
+### Key Features
+
+- Build real-time knowledge graphs for AI agents
+- Incremental data updates and efficient retrieval
+- Query complex, evolving data with semantic and graph-based search
+
+Refer to the [Graphiti documentation](https://github.com/getzep/graphiti) for detailed setup and usage instructions.
+
+## Web Search Engine
+
+For web search capabilities, consider integrating [Crawl4AI](https://github.com/unclecode/crawl4ai). Crawl4AI is an open-source, LLM-friendly web crawler and scraper designed for blazing-fast, AI-ready web crawling tailored for LLMs and AI agents.
+
+### Installation
+
+To install Crawl4AI, use the following command:
+
+```bash
+pip install crawl4ai
+```
+
+### Key Features
+
+- Deep crawling with BFS, DFS, and BestFirst strategies
+- Browser-based and lightweight HTTP-only crawlers
+- AI-powered coding assistant for web data extraction
+- Proxy rotation and memory-adaptive dispatching
+
+Refer to the [Crawl4AI documentation](https://github.com/unclecode/crawl4ai) for detailed setup and usage instructions.

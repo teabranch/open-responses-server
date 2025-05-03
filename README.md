@@ -23,9 +23,9 @@ Install today via pip: [openai-responses-server](https://pypi.org/project/openai
 
 # OpenAI API Configuration
 
-OPENAI_BASE_URL_INTERNAL=http://localhost:8000
-OPENAI_BASE_URL=http://localhost:8080
-OPENAI_API_KEY=sk-mockapikey123456789abcdefghijklmnopqrstuvwxyz
+OPENAI_BASE_URL_INTERNAL=# Your AI Provider host api. localhost for Ollama, Groq and even OpenAI  
+OPENAI_BASE_URL=http://localhost:8080 # IP and port of your openai-responses-server (ORS)
+OPENAI_API_KEY=sk-mockapikey123456789abcdefghijklmnopqrstuvwxyz # For Ollama, this should be mock. The key is tunneled to the provider
 
 # Server Configuration
 

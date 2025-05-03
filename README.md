@@ -21,6 +21,22 @@ Install today via pip: [openai-responses-server](https://pypi.org/project/openai
 - [ ] Code interpreter 
 - [ ] Computer use
 
+# OpenAI API Configuration
+
+OPENAI_BASE_URL_INTERNAL=http://localhost:8000
+OPENAI_BASE_URL=http://localhost:8080
+OPENAI_API_KEY=sk-mockapikey123456789abcdefghijklmnopqrstuvwxyz
+
+# Server Configuration
+
+API_ADAPTER_HOST=0.0.0.0
+API_ADAPTER_PORT=8080
+
+# Logging Configuration (optional)
+
+LOG_LEVEL=INFO
+LOG_FILE_PATH=./log/api_adapter.log
+
 # Installation
 
 ## UV cli
@@ -45,6 +61,12 @@ Install dependecies with uv
 uv pip install .
 uv pip install -e ".[dev]"  # for development
 ```
+
+Run server:
+```
+uv run src/openai_responses_server/cli.py start
+```
+
 # 📚 Citation
 
 ## Cited projects

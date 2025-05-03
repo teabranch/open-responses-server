@@ -68,9 +68,9 @@ services:
       echo '>>> Installing Codex...' &&
       npm install -g @openai/codex &&
       echo '>>> Installing API adapter dependencies...' &&
-      cd /app/api_adapter && pip install -r requirements.txt &&
+      cd /app/api_adapter && uv pip install . &&
       echo '>>> Starting API adapter server...' &&
-      python3 /app/api_adapter/server.py &
+      uv python3 /app/api_adapter/server.py &
       echo '>>> Codex installed successfully!' &&
       echo '>>> You can now use the codex command with either API format.' &&
       echo '>>> Example: codex --help' &&

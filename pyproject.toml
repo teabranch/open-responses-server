@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "openai-responses-server"
+dynamic = ["version"]
+description = "CLI to manage the OpenAI Responses Server that bridges chat completions to responses API calls"
+authors = [
+    { name = "Ori Nachum", email = "ori.nachum@gmail.com" }
+]
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.8"
+dependencies = [
+    "fastapi>=0.68.0",
+    "uvicorn>=0.15.0",
+    "httpx>=0.24.0",
+    "python-dotenv>=0.19.0",
+    "pydantic>=1.8.0",
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Environment :: Web Environment",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=6.0",
+    "black>=21.0",
+    "flake8>=3.9",
+    "twine>=6.1.0"
+]
+
+[project.scripts]
+otc = "openai_responses_server.cli:main"
+
+[tool.setuptools.dynamic]
+version = {attr = "openai_responses_server.version.__version__"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[project.urls]
+Homepage = "https://github.com/teabranch/openai-responses-server"
+Documentation = "https://github.com/teabranch/openai-responses-server"
+Repository = "https://github.com/teabranch/openai-responses-server"

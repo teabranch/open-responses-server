@@ -21,6 +21,30 @@ Install today via pip: [openai-responses-server](https://pypi.org/project/openai
 - [ ] Code interpreter 
 - [ ] Computer use
 
+# Installation
+
+## UV cli
+Install uv if not installed yet.
+From: https://docs.astral.sh/uv/getting-started/installation/#standalone-installer
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+or 
+```powershell
+powershell -c "irm https://astral.sh/uv/install.ps1 | more"
+```
+
+Setup environment with:
+```
+uv venv
+``` 
+
+Install dependecies with uv
+```
+uv pip install .
+uv pip install -e ".[dev]"  # for development
+```
 # 📚 Citation
 
 ## Cited projects

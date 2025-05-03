@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
 
+"""
+OpenAI Responses Server - A proxy server that converts between different OpenAI-compatible API formats.
+
+This module provides a FastAPI server that acts as an adapter between different OpenAI API formats,
+specifically translating between the Responses API format and the chat.completions API format.
+"""
+
 import os
 import json
 import asyncio
@@ -15,6 +22,10 @@ from pydantic import BaseModel, Field
 import time
 import traceback
 from dotenv import load_dotenv
+
+__version__ = "0.1.0"
+__author__ = "TeaBranch"
+__license__ = "MIT"
 
 # Load environment variables
 load_dotenv()

@@ -1,5 +1,5 @@
 #!/bin/bash
-curl ${OPENAI_BASE_URL_INTERNAL}/v1/chat/completions -s \
+curl localhost:8080/chat/completions -s \
 -H "Content-Type: application/json" \
 -H "Authorization: Bearer ${OPENAI_API_KEY}" \
 -d '{

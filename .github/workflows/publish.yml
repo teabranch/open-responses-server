@@ -34,6 +34,11 @@ jobs:
           uv pip install build setuptools wheel
           uv pip install -e ".[dev]"
 
+      - name: Install build module
+        run: |
+          python -m pip install --upgrade pip
+          pip install build
+
       - name: Build release distributions
         run: python -m build
 

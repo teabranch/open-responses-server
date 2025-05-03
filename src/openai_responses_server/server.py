@@ -739,3 +739,10 @@ async def proxy_endpoint(request: Request, path_name: str):
             status_code=500,
             detail=f"Error proxying request: {str(e)}"
         )
+
+if __name__ == "__main__":
+    logger.info(f"Starting API Adapter server on {API_ADAPTER_HOST}:{API_ADAPTER_PORT}")
+    logger.info(f"Using OpenAI Base URL (internal): {OPENAI_BASE_URL_INTERNAL}")
+    logger.info(f"Using OpenAI Base URL: {OPENAI_BASE_URL}")
+    
+    uvicorn.run("server:app", host=API_ADAPTER_HOST, port=API_ADAPTER_PORT, reload=True)

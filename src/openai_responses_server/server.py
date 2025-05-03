@@ -24,7 +24,7 @@ import traceback
 from dotenv import load_dotenv
 
 __version__ = "0.1.0"
-__author__ = "Orin"
+__author__ = "TeaBranch"
 __license__ = "MIT"
 
 # Load environment variables

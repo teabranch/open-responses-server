@@ -1,23 +1,29 @@
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "openai-responses-server"
-version = "0.1.0"
-description = "A proxy server that converts between different OpenAI-compatible API formats"
+dynamic = ["version"]
+description = "CLI to manage the OpenAI Responses Server that bridges chat completions to responses API calls"
 authors = [
-    { name = "Orin", email = "" }
+    { name = "Ori Nachum", email = "ori.nachum@gmail.com" }
 ]
 readme = "README.md"
 license = { text = "MIT" }
-requires-python = ">=3.8"
+requires-python = ">=3.7"
 dependencies = [
     "fastapi>=0.68.0",
     "uvicorn>=0.15.0",
     "httpx>=0.24.0",
     "python-dotenv>=0.19.0",
     "pydantic>=1.8.0",
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Environment :: Web Environment",
 ]
 
 [project.optional-dependencies]
@@ -27,19 +33,16 @@ dev = [
     "flake8>=3.9",
 ]
 
-[tool.hatch.build.targets.wheel]
-packages = ["src/openai_responses_server"]
+[project.scripts]
+otc = "openai_responses_server.cli:main"
 
-[tool.hatch.build]
-exclude = [
-    "tests/*",
-    "examples/*",
-    "docs/*",
-]
+[tool.setuptools.dynamic]
+version = {attr = "openai_responses_server.version.__version__"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
 
 [project.urls]
-Documentation = "https://github.com/orin/openai-responses-server/docs"
-Source = "https://github.com/orin/openai-responses-server"
-
-[project.scripts]
-openai-responses-server = "openai_responses_server.cli:main"
+Homepage = "https://github.com/teabranch/openai-responses-server"
+Documentation = "https://github.com/teabranch/openai-responses-server"
+Repository = "https://github.com/teabranch/openai-responses-server"

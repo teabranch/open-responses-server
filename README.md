@@ -21,3 +21,9 @@ Install today via pip: [openai-responses-server](https://pypi.org/project/openai
 - [ ] Code interpreter 
 - [ ] Computer use
 
+# Installation
+
+```
+uv pip install .
+uv pip install -e ".[dev]"  # for development
+```

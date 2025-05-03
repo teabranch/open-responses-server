@@ -43,6 +43,10 @@ LOG_FILE_PATH=./log/api_adapter.log
 Install uv if not installed yet.
 From: https://docs.astral.sh/uv/getting-started/installation/#standalone-installer
 
+```python
+pip install uv
+```
+
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```

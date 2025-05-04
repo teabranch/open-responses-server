@@ -1,4 +1,5 @@
 # openai-responses-server
+
 A server the serves any AI provider with OpenAI ChatCompletions as OpenAI's Responses API and hosted tools.
 I means it manages the stateful component of Responses API, and bridges Ollama, Vllm, LiteLLM and any other AI serving library.
 This means you can use OpenAI's new coding assistant "Codex", that needs Responses API endpoints.
@@ -17,9 +18,20 @@ Install today via pip: [openai-responses-server](https://pypi.org/project/openai
 - [ ] State management (long term, not just in-memory)
 - [ ] Web search support ([crawl4ai](https://github.com/unclecode/crawl4ai))
 - [ ] File upload + search
-  - [ ] **[graphiti](https://github.com/getzep/graphiti) (based on neo4j)**
-- [ ] Code interpreter 
+   - [ ] **[graphiti](https://github.com/getzep/graphiti) (based on neo4j)**
+
+- [ ] Code interpreter
 - [ ] Computer use
+
+# Documentation
+
+The following guides are available in the `docs/` directory:
+
+- [CLI Local Documentation](docs/cli-local.md) - Documentation for local CLI usage
+- [Using UV](docs/using-uv.md) - Guide for working with the UV package manager
+- [Pip Publish Instructions](docs/pip-publish-instructions.md) - Instructions for publishing to PyPI
+- [Extension Guide](docs/extend-instructions.md) - How to extend the server functionality
+- [Testing Guide](docs/testing-guide.md) - Documentation for running and writing tests
 
 # OpenAI API Configuration
 
@@ -40,6 +52,7 @@ LOG_FILE_PATH=./log/api_adapter.log
 # Installation
 
 ## UV cli
+
 Install uv if not installed yet.
 From: https://docs.astral.sh/uv/getting-started/installation/#standalone-installer
 
@@ -50,24 +63,29 @@ pip install uv
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
-or 
+
+or
+
 ```powershell
 powershell -c "irm https://astral.sh/uv/install.ps1 | more"
 ```
 
 Setup environment with:
-```
+
+```text
 uv venv
-``` 
+```
 
 Install dependecies with uv
-```
+
+```sh
 uv pip install .
 uv pip install -e ".[dev]"  # for development
 ```
 
 Run server:
-```
+
+```sh
 uv run src/openai_responses_server/cli.py start
 ```
 
@@ -75,25 +93,26 @@ uv run src/openai_responses_server/cli.py start
 
 ## Cited projects
 
-UncleCode. (2024). Crawl4AI: Open-source LLM Friendly Web Crawler & Scraper [Computer software]. 
+UncleCode. (2024). Crawl4AI: Open-source LLM Friendly Web Crawler & Scraper [Computer software].
 GitHub. https://github.com/unclecode/crawl4ai
 
-## Cite this project 
+## Cite this project
 
-If you use openai-responses-server in your research or project, please cite:  
+If you use openai-responses-server in your research or project, please cite:
 
 ### Code citation format
+
 @software{openai-responses-server,
-  author = {TeaBranch},
-  title = {openai-responses-server: Open-source server the serves any AI provider with OpenAI ChatCompletions as OpenAI's Responses API and hosted tools.},
-  year = {2025},
-  publisher = {GitHub},
-  journal = {GitHub Repository},
-  howpublished = {\url{https://github.com/teabranch/openai-responses-server}},
-  commit = {Please use the commit hash you're working with}
+author = {TeaBranch},
+title = {openai-responses-server: Open-source server the serves any AI provider with OpenAI ChatCompletions as OpenAI's Responses API and hosted tools.},
+year = {2025},
+publisher = {GitHub},
+journal = {GitHub Repository},
+howpublished = {\url{https://github.com/teabranch/openai-responses-server}},
+commit = {Please use the commit hash you're working with}
 }
 
 ### Text citation format:
 
-TeaBranch. (2025). openai-responses-server: Open-source server the serves any AI provider with OpenAI ChatCompletions as OpenAI's Responses API and hosted tools. [Computer software]. 
+TeaBranch. (2025). openai-responses-server: Open-source server the serves any AI provider with OpenAI ChatCompletions as OpenAI's Responses API and hosted tools. [Computer software].
 GitHub. https://github.com/teabranch/openai-responses-server

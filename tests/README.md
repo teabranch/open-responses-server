@@ -2,6 +2,8 @@
 
 This directory contains the test suite for the OpenAI Responses Server project.
 
+> **Note:** For a comprehensive guide to running and writing tests, see the [Testing Guide](../docs/testing-guide.md) in the docs directory.
+
 ## Test Structure
 
 The tests are organized into the following categories:

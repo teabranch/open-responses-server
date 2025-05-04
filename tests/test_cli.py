@@ -33,17 +33,19 @@ class TestCLI:
     @pytest.mark.usefixtures("ensure_uv")
     def test_start_server_subprocess_fallback(self, python_executable):
         """Test that start_server falls back to subprocess if imports fail"""
-        # Force the ImportError condition
-        with patch('importlib.import_module', side_effect=ImportError("Mock import error")):
-            with patch('openai_responses_server.cli.subprocess') as mock_subprocess:
-                # Call start_server
-                start_server(host="127.0.0.1", port="9000")
-                
-                # Verify subprocess.run was called correctly
-                mock_subprocess.run.assert_called_once_with(
-                    ["uvicorn", "openai_responses_server.server:app", "--host", "127.0.0.1", "--port", "9000"],
-                    check=True
-                )
+        # Force the ImportError condition by patching the specific imports in the CLI module
+        with patch('openai_responses_server.cli.os.makedirs'):
+            with patch.dict('sys.modules', {'uvicorn': None, 'openai_responses_server.server': None}):
+                # This will cause the import statements to fail with ImportError
+                with patch('openai_responses_server.cli.subprocess') as mock_subprocess:
+                    # Call start_server
+                    start_server(host="127.0.0.1", port="9000")
+                    
+                    # Verify subprocess.run was called correctly
+                    mock_subprocess.run.assert_called_once_with(
+                        ["uvicorn", "openai_responses_server.server:app", "--host", "127.0.0.1", "--port", "9000"],
+                        check=True
+                    )
     
     def test_configure_server(self):
         """Test that configure_server correctly creates .env file"""

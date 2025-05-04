@@ -19,4 +19,4 @@ jobs:
       run: pip install uv
       
     - name: Run tests
-      run: bash openai-responses-server/run_tests.sh 
+      run: bash run_tests.sh 

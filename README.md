@@ -12,10 +12,16 @@ Install today via pip: [openai-responses-server](https://pypi.org/project/openai
 # Roadmap
 
 - [x] Tool run support (Tested with llama 3.2 3b on Ollama)
-- [ ] Validate work from CLI
+- [x] Validate work from CLI
 - [ ] dotenv support
+- [x] Tests
+  - [x] Manual
+  - [x] Pipelines
+- [ ] Deployments
+  - [x] Pypi package
+  - [ ] Docker image 
 - [ ] State management (long term, not just in-memory)
-- [ ] Web search support ([crawl4ai](https://github.com/unclecode/crawl4ai))
+- [ ] **Web search support ([crawl4ai](https://github.com/unclecode/crawl4ai))**
 - [ ] File upload + search
   - [ ] **[graphiti](https://github.com/getzep/graphiti) (based on neo4j)**
 - [ ] Code interpreter 

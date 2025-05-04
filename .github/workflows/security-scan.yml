@@ -30,7 +30,7 @@ jobs:
         continue-on-error: true
         
       - name: Upload Bandit results
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: bandit-results
           path: bandit-results.json
@@ -57,7 +57,7 @@ jobs:
         continue-on-error: true
         
       - name: Upload Pylint results
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: pylint-results
           path: pylint-results.json 

@@ -72,6 +72,8 @@ jobs:
       
   dependency-review:
     name: Dependency Review
+    # Only run on pull requests where base_ref and head_ref are available
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -97,4 +99,4 @@ jobs:
           languages: python
           
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v2 
+        uses: github/codeql-action/analyze@v3 

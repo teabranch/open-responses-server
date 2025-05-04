@@ -1,0 +1,40 @@
+repos:
+- repo: https://github.com/pycqa/flake8
+  rev: 6.1.0
+  hooks:
+  - id: flake8
+    additional_dependencies: [flake8-bandit, flake8-bugbear]
+    
+- repo: https://github.com/pycqa/isort
+  rev: 5.12.0
+  hooks:
+  - id: isort
+    
+- repo: https://github.com/psf/black
+  rev: 23.7.0
+  hooks:
+  - id: black
+    language_version: python3
+
+- repo: https://github.com/PyCQA/bandit
+  rev: 1.7.5
+  hooks:
+  - id: bandit
+    args: ["-r", "src"]
+    
+- repo: https://github.com/pycqa/pylint
+  rev: v2.17.5
+  hooks:
+  - id: pylint
+    additional_dependencies: [pylint-django]
+    args: ["--disable=C0111,C0103", "--rcfile=.pylintrc"]
+    
+- repo: https://github.com/pre-commit/pre-commit-hooks
+  rev: v4.4.0
+  hooks:
+  - id: trailing-whitespace
+  - id: end-of-file-fixer
+  - id: check-yaml
+  - id: check-added-large-files
+  - id: check-ast
+  - id: detect-private-key 

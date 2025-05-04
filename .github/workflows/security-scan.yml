@@ -1,0 +1,63 @@
+name: Security Scan
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  bandit:
+    name: Bandit Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+          
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install bandit
+          pip install -e ".[dev]"
+          
+      - name: Run Bandit
+        run: bandit -r src/ -f json -o bandit-results.json
+        continue-on-error: true
+        
+      - name: Upload Bandit results
+        uses: actions/upload-artifact@v3
+        with:
+          name: bandit-results
+          path: bandit-results.json
+          
+  pylint:
+    name: Pylint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+          
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pylint
+          pip install -e ".[dev]"
+          
+      - name: Run pylint
+        run: pylint --disable=C0111,C0103 --generate-rcfile > .pylintrc && pylint src/ --output-format=json:pylint-results.json
+        continue-on-error: true
+        
+      - name: Upload Pylint results
+        uses: actions/upload-artifact@v3
+        with:
+          name: pylint-results
+          path: pylint-results.json 

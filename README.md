@@ -107,10 +107,12 @@ Let’s build something powerful—together.
 # 📚 Citations & inspirations
 
 ## Referenced projects
-	•	Crawl4AI – LLM-friendly web crawler
-	•	Graphiti – Neo4j-powered search
+- Crawl4AI – LLM-friendly web crawler
+- UncleCode. (2024). Crawl4AI: Open-source LLM Friendly Web Crawler & Scraper [Computer software]. GitHub. https://github.com/unclecode/crawl4ai
 
 ## Cite this project
+
+### Code citation
 ```
 @software{openai-responses-server,
   author = {TeaBranch},
@@ -122,6 +124,7 @@ Let’s build something powerful—together.
   commit = {use the commit hash you’re working with}
 }
 ```
+
 
 
 ⸻

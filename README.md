@@ -1,105 +1,135 @@
-# openai-responses-server
-A server the serves any AI provider with OpenAI ChatCompletions as OpenAI's Responses API and hosted tools.
-I means it manages the stateful component of Responses API, and bridges Ollama, Vllm, LiteLLM and any other AI serving library.
-This means you can use OpenAI's new coding assistant "Codex", that needs Responses API endpoints.
+# 🚀 openai-responses-server
 
-It is still missing some features, but I would appreciate your support in stars, issues, suggestions and even pull requests if you are inclined for it.
+A plug-and-play server that speaks OpenAI’s Responses API—no matter which AI backend you’re running.
 
-I verified it works in my main repo, in my [demo AI assistant that can hear, think and speak](https://github.com/OriNachum/autonomous-intelligence/tree/main/baby-tau) with the docker-compose-codex.yaml
+Ollama? vLLM? LiteLLM? Even OpenAI itself?
+This server bridges them all to the OpenAI ChatCompletions & Responses API interface.
 
-Install today via pip: [openai-responses-server](https://pypi.org/project/openai-responses-server)
+In plain words:
+👉 Want to run OpenAI’s Coding Assistant (Codex) or other OpenAI API clients against your own models?
+👉 Want to experiment with self-hosted LLMs but keep OpenAI’s API compatibility?
 
-# Roadmap
+This project makes it happen.
+It handles stateful chat, tool calls, and future features like file search & code interpreter—all behind a familiar OpenAI API.
 
-- [x] Tool run support (Tested with llama 3.2 3b on Ollama)
-- [x] Validate work from CLI
-- [ ] dotenv support
-- [x] Tests
-  - [x] Manual
-  - [x] Pipelines
-- [ ] Deployments
-  - [x] Pypi package
-  - [ ] Docker image 
-- [ ] State management (long term, not just in-memory)
-- [ ] **Web search support ([crawl4ai](https://github.com/unclecode/crawl4ai))**
-- [ ] File upload + search
-  - [ ] **[graphiti](https://github.com/getzep/graphiti) (based on neo4j)**
-- [ ] Code interpreter 
-- [ ] Computer use
+⸻
 
-# OpenAI API Configuration
+# ✨ Why use this?
 
-OPENAI_BASE_URL_INTERNAL=# Your AI Provider host api. localhost for Ollama, Groq and even OpenAI  
-OPENAI_BASE_URL=http://localhost:8080 # IP and port of your openai-responses-server (ORS)
-OPENAI_API_KEY=sk-mockapikey123456789abcdefghijklmnopqrstuvwxyz # For Ollama, this should be mock. The key is tunneled to the provider
+✅ Acts as a drop-in replacement for OpenAI’s Responses API.
+✅ Lets you run any backend AI (Ollama, vLLM, Groq, etc.) with OpenAI-compatible clients.
+✅ Supports OpenAI’s new Coding Assistant / Codex that requires Responses API.
+✅ Already battle-tested inside baby-tau: an autonomous AI assistant.
+✅ Built for hackers, tinkerers, researchers, OSS enthusiasts.
 
-# Server Configuration
+⸻
 
-API_ADAPTER_HOST=0.0.0.0
-API_ADAPTER_PORT=8080
+# 🏗️ Quick Install
 
-# Logging Configuration (optional)
+Latest release on PyPI:
 
-LOG_LEVEL=INFO
-LOG_FILE_PATH=./log/api_adapter.log
-
-# Installation
-
-## UV cli
-Install uv if not installed yet.
-From: https://docs.astral.sh/uv/getting-started/installation/#standalone-installer
-
-```python
-pip install uv
+```
+pip install openai-responses-server
 ```
 
-```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh
-```
-or 
-```powershell
-powershell -c "irm https://astral.sh/uv/install.ps1 | more"
-```
+Or install from source:
 
-Setup environment with:
 ```
 uv venv
-``` 
-
-Install dependecies with uv
-```
 uv pip install .
-uv pip install -e ".[dev]"  # for development
+uv pip install -e ".[dev]"  # dev dependencies
 ```
 
-Run server:
+Run the server:
+
 ```
 uv run src/openai_responses_server/cli.py start
 ```
 
-# 📚 Citation
+Works great with docker-compose.yaml for Codex + your own model.
 
-## Cited projects
+⸻
 
-UncleCode. (2024). Crawl4AI: Open-source LLM Friendly Web Crawler & Scraper [Computer software]. 
-GitHub. https://github.com/unclecode/crawl4ai
+🔥 What’s in & what’s next?
 
-## Cite this project 
+✅ Done	📝 Coming soon
+- ✅ Tool call support	.env file support
+- ✅ Manual & pipeline tests
+- ✅ Docker image build
+- ✅ PyPI release	
+- 📝 Persistent state (not just in-memory)
+- ✅ CLI validation	
+- 📝 hosted tools:
+  - 📝 MCPs support
+  - 📝 Web search: crawl4ai
+	- 📝 File upload + search: graphiti
+	- 📝 Code interpreter
+	- 📝 Computer use APIs
 
-If you use openai-responses-server in your research or project, please cite:  
 
-### Code citation format
+
+⸻
+
+# 🛠️ Configure
+
+Minimal config to connect your AI backend:
+
+```
+OPENAI_BASE_URL_INTERNAL=http://localhost:11434  # Ollama, vLLM, Groq, etc.
+OPENAI_BASE_URL=http://localhost:8080            # This server’s endpoint
+OPENAI_API_KEY=sk-mockapikey123456789            # Mock key tunneled to backend
+```
+
+Server binding:
+```
+API_ADAPTER_HOST=0.0.0.0
+API_ADAPTER_PORT=8080
+```
+Optional logging:
+```
+LOG_LEVEL=INFO
+LOG_FILE_PATH=./log/api_adapter.log
+```
+
+
+⸻
+
+# 💬 I’d love your support!
+
+If you think this is cool:
+⭐ Star the repo
+🐛 Open an issue if something’s broken
+🤝 Suggest a feature or submit a pull request!
+
+This is early-stage but already usable in real-world demos.
+Let’s build something powerful—together.
+
+⸻
+
+# 📚 Citations & inspirations
+
+## Referenced projects
+	•	Crawl4AI – LLM-friendly web crawler
+	•	Graphiti – Neo4j-powered search
+
+## Cite this project
+
 @software{openai-responses-server,
   author = {TeaBranch},
-  title = {openai-responses-server: Open-source server the serves any AI provider with OpenAI ChatCompletions as OpenAI's Responses API and hosted tools.},
+  title = {openai-responses-server: Open-source server bridging any AI provider to OpenAI’s Responses API},
   year = {2025},
   publisher = {GitHub},
   journal = {GitHub Repository},
   howpublished = {\url{https://github.com/teabranch/openai-responses-server}},
-  commit = {Please use the commit hash you're working with}
+  commit = {use the commit hash you’re working with}
 }
 
-### Text citation format:
 
-TeaBranch. (2025). openai-responses-server: Open-source server the serves any AI provider with OpenAI ChatCompletions as OpenAI's Responses API and hosted tools. [Computer software]. 
-GitHub. https://github.com/teabranch/openai-responses-server
+
+⸻
+
+# 🏁 Try it with baby-tau
+
+Want to see it in action?
+Check out baby-tau—an AI assistant that can hear, think, and speak.
+

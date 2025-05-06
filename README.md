@@ -94,12 +94,12 @@ LOG_FILE_PATH=./log/api_adapter.log
 
 # 💬 I’d love your support!
 
-If you think this is cool:
-⭐ Star the repo
-🐛 Open an issue if something’s broken
-🤝 Suggest a feature or submit a pull request!
+If you think this is cool:  
+⭐ Star the repo.  
+🐛 Open an issue if something’s broken.  
+🤝 Suggest a feature or submit a pull request!  
 
-This is early-stage but already usable in real-world demos.
+This is early-stage but already usable in real-world demos.  
 Let’s build something powerful—together.
 
 ⸻

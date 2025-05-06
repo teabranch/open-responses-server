@@ -111,7 +111,7 @@ Let’s build something powerful—together.
 	•	Graphiti – Neo4j-powered search
 
 ## Cite this project
-
+```
 @software{openai-responses-server,
   author = {TeaBranch},
   title = {openai-responses-server: Open-source server bridging any AI provider to OpenAI’s Responses API},
@@ -121,7 +121,7 @@ Let’s build something powerful—together.
   howpublished = {\url{https://github.com/teabranch/openai-responses-server}},
   commit = {use the commit hash you’re working with}
 }
-
+```
 
 
 ⸻

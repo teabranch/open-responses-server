@@ -1,26 +1,26 @@
 # 🚀 openai-responses-server
 
-A plug-and-play server that speaks OpenAI’s Responses API—no matter which AI backend you’re running.
+A plug-and-play server that speaks OpenAI’s Responses API—no matter which AI backend you’re running.  
 
-Ollama? vLLM? LiteLLM? Even OpenAI itself?
-This server bridges them all to the OpenAI ChatCompletions & Responses API interface.
+Ollama? vLLM? LiteLLM? Even OpenAI itself?  
+This server bridges them all to the OpenAI ChatCompletions & Responses API interface.  
 
-In plain words:
-👉 Want to run OpenAI’s Coding Assistant (Codex) or other OpenAI API clients against your own models?
-👉 Want to experiment with self-hosted LLMs but keep OpenAI’s API compatibility?
+In plain words:  
+👉 Want to run OpenAI’s Coding Assistant (Codex) or other OpenAI API clients against your own models?  
+👉 Want to experiment with self-hosted LLMs but keep OpenAI’s API compatibility?  
 
-This project makes it happen.
+This project makes it happen.  
 It handles stateful chat, tool calls, and future features like file search & code interpreter—all behind a familiar OpenAI API.
 
 ⸻
 
 # ✨ Why use this?
 
-✅ Acts as a drop-in replacement for OpenAI’s Responses API.
-✅ Lets you run any backend AI (Ollama, vLLM, Groq, etc.) with OpenAI-compatible clients.
-✅ Supports OpenAI’s new Coding Assistant / Codex that requires Responses API.
-✅ Already battle-tested inside baby-tau: an autonomous AI assistant.
-✅ Built for hackers, tinkerers, researchers, OSS enthusiasts.
+✅ Acts as a drop-in replacement for OpenAI’s Responses API.  
+✅ Lets you run any backend AI (Ollama, vLLM, Groq, etc.) with OpenAI-compatible clients.  
+✅ Supports OpenAI’s new Coding Assistant / Codex that requires Responses API.  
+✅ Already battle-tested inside baby-tau: an autonomous AI assistant.  
+✅ Built for hackers, tinkerers, researchers, OSS enthusiasts.  
 
 ⸻
 

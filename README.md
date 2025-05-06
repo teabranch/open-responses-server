@@ -62,11 +62,9 @@ Works great with docker-compose.yaml for Codex + your own model.
 - 📝 hosted tools:
   - 📝 MCPs support
   - 📝 Web search: crawl4ai
-	- 📝 File upload + search: graphiti
-	- 📝 Code interpreter
-	- 📝 Computer use APIs
-
-
+  - 📝 File upload + search: graphiti
+  - 📝 Code interpreter
+  - 📝 Computer use APIs
 
 ⸻
 

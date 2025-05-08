@@ -19,8 +19,8 @@ It handles stateful chat, tool calls, and future features like file search & cod
 ✅ Acts as a drop-in replacement for OpenAI’s Responses API.  
 ✅ Lets you run any backend AI (Ollama, vLLM, Groq, etc.) with OpenAI-compatible clients.  
 ✅ Supports OpenAI’s new Coding Assistant / Codex that requires Responses API.  
-✅ Already battle-tested inside baby-tau: an autonomous AI assistant.  
-✅ Built for hackers, tinkerers, researchers, OSS enthusiasts.  
+✅ Built for innovators, researchers, OSS enthusiasts.
+✅ Enterprise-ready: scalable, reliable, and secure for production workloads.
 
 ⸻
 

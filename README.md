@@ -129,10 +129,6 @@ Let’s build something powerful—together.
 
 TeaBranch. (2025). openai-responses-server: Open-source server the serves any AI provider with OpenAI ChatCompletions as OpenAI's Responses API and hosted tools. [Computer software]. GitHub. https://github.com/teabranch/openai-responses-server
 
-⸻
 
-# 🏁 Try it with baby-tau
 
-Want to see it in action?
-Check out baby-tau—an AI assistant that can hear, think, and speak.
 

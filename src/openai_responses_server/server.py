@@ -5,14 +5,17 @@ OpenAI Responses Server - A proxy server that converts between different OpenAI-
 
 This module provides a FastAPI server that acts as an adapter between different OpenAI API formats,
 specifically translating between the Responses API format and the chat.completions API format.
+It also supports Model Context Protocol (MCP) servers for tool execution.
 """
 
 import os
 import json
 import asyncio
 import logging
-from typing import Dict, List, Any, Optional, Union
+from typing import Dict, List, Any, Optional, Union, Tuple
 import uuid
+import shutil
+from contextlib import AsyncExitStack
 from fastapi import FastAPI, Request, Response, BackgroundTasks, HTTPException, Depends
 from fastapi.responses import StreamingResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -22,6 +25,340 @@ from pydantic import BaseModel, Field
 import time
 import traceback
 from dotenv import load_dotenv
+
+# Import MCP dependencies
+try:
+    from mcp import ClientSession, StdioServerParameters
+    from mcp.client.stdio import stdio_client
+    HAS_MCP_SUPPORT = True
+except ImportError:
+    HAS_MCP_SUPPORT = False
+    logging.warning("MCP libraries not found. MCP support will be disabled.")
+
+# MCP Server management
+class MCPServer:
+    """
+    Manages a connection to an MCP server, providing tool listing and execution capabilities.
+    """
+    def __init__(self, name: str, config: Dict[str, Any]) -> None:
+        """
+        Initialize an MCP server connection handler.
+        
+        Args:
+            name: Name identifier for the MCP server
+            config: Configuration dictionary with command, args, and env settings
+        """
+        self.name: str = name
+        self.config: Dict[str, Any] = config
+        self.session: Optional[ClientSession] = None
+        self._cleanup_lock: asyncio.Lock = asyncio.Lock()
+        self.exit_stack: AsyncExitStack = AsyncExitStack()
+        self.tools_cache: List[Any] = []
+        self.tools_last_updated: float = 0
+        self.tools_refresh_interval: float = 300  # 5 minutes
+        self.ready: bool = False
+        self.logger = logging.getLogger(f"mcp_server_{name}")
+        
+    async def initialize(self) -> bool:
+        """
+        Initialize the connection to the MCP server.
+        
+        Returns:
+            True if initialization was successful, False otherwise
+        """
+        if not HAS_MCP_SUPPORT:
+            self.logger.error("MCP support is not available (missing libraries)")
+            return False
+            
+        # Get the command to run the MCP server
+        command = shutil.which("npx") if self.config.get("command") == "npx" else self.config.get("command")
+        if command is None:
+            self.logger.error(f"Invalid command for MCP server {self.name}")
+            return False
+            
+        # Create server parameters
+        server_params = StdioServerParameters(
+            command=command,
+            args=self.config.get("args", []),
+            env={**os.environ, **self.config.get("env", {})} if self.config.get("env") else None
+        )
+        
+        try:
+            # Establish stdio connection to the MCP server
+            self.logger.info(f"Initializing MCP server {self.name}")
+            stdio_transport = await self.exit_stack.enter_async_context(stdio_client(server_params))
+            read_stream, write_stream = stdio_transport
+            
+            # Create and initialize session
+            session = await self.exit_stack.enter_async_context(ClientSession(read_stream, write_stream))
+            await session.initialize()
+            
+            self.session = session
+            self.ready = True
+            self.logger.info(f"Successfully connected to MCP server {self.name}")
+            
+            # Initial tools listing
+            await self.refresh_tools()
+            
+            return True
+        except Exception as e:
+            self.logger.error(f"Error initializing MCP server {self.name}: {str(e)}")
+            self.logger.error(traceback.format_exc())
+            await self.cleanup()
+            return False
+    
+    async def refresh_tools(self) -> List[Any]:
+        """
+        Refresh the list of available tools from the MCP server.
+        
+        Returns:
+            List of available tools
+        """
+        if not self.ready or not self.session:
+            self.logger.warning(f"Cannot refresh tools: MCP server {self.name} not ready")
+            return self.tools_cache
+            
+        try:
+            tools_response = await self.session.list_tools()
+            tools = []
+            
+            for item in tools_response:
+                if isinstance(item, tuple) and item[0] == "tools":
+                    for tool in item[1]:
+                        tools.append({
+                            "name": tool.name,
+                            "description": tool.description,
+                            "input_schema": tool.inputSchema
+                        })
+            
+            self.tools_cache = tools
+            self.tools_last_updated = time.time()
+            self.logger.info(f"Refreshed tools for {self.name}: found {len(tools)} tools")
+            return tools
+        except Exception as e:
+            self.logger.error(f"Error refreshing tools for {self.name}: {str(e)}")
+            return self.tools_cache
+    
+    async def list_tools(self) -> List[Any]:
+        """
+        Get the list of available tools from the MCP server.
+        Will refresh the tools list if the cache is outdated.
+        
+        Returns:
+            List of available tools
+        """
+        # Check if we need to refresh the tools list
+        if not self.tools_cache or time.time() - self.tools_last_updated > self.tools_refresh_interval:
+            return await self.refresh_tools()
+        return self.tools_cache
+    
+    async def execute_tool(self, tool_name: str, arguments: Dict[str, Any], retries: int = 2, delay: float = 1.0) -> Any:
+        """
+        Execute a tool on the MCP server with retry capability.
+        
+        Args:
+            tool_name: Name of the tool to execute
+            arguments: Tool arguments
+            retries: Number of retry attempts
+            delay: Delay between retries in seconds
+            
+        Returns:
+            Tool execution result
+            
+        Raises:
+            RuntimeError: If the server is not initialized
+            Exception: If tool execution fails after all retries
+        """
+        if not self.ready or not self.session:
+            raise RuntimeError(f"MCP server {self.name} not initialized")
+            
+        attempt = 0
+        while attempt < retries:
+            try:
+                self.logger.info(f"Executing tool {tool_name} on server {self.name}")
+                result = await self.session.call_tool(tool_name, arguments)
+                return result
+            except Exception as e:
+                attempt += 1
+                self.logger.warning(f"Error executing tool {tool_name}: {str(e)}. Attempt {attempt} of {retries}.")
+                if attempt < retries:
+                    self.logger.info(f"Retrying in {delay} seconds...")
+                    await asyncio.sleep(delay)
+                else:
+                    self.logger.error(f"Max retries reached. Failed to execute {tool_name}")
+                    raise
+    
+    async def cleanup(self) -> None:
+        """Clean up server resources."""
+        async with self._cleanup_lock:
+            try:
+                self.logger.info(f"Cleaning up MCP server {self.name}")
+                await self.exit_stack.aclose()
+                self.session = None
+                self.ready = False
+            except Exception as e:
+                self.logger.error(f"Error during cleanup of MCP server {self.name}: {str(e)}")
+
+# MCP Server Manager
+class MCPServerManager:
+    """
+    Manages multiple MCP servers and provides a unified interface for tool execution.
+    """
+    def __init__(self) -> None:
+        self.servers: Dict[str, MCPServer] = {}
+        self.initialized: bool = False
+        self.logger = logging.getLogger("mcp_manager")
+        
+    def load_config(self, config: Dict[str, Any]) -> None:
+        """
+        Load MCP server configurations.
+        
+        Args:
+            config: Dictionary containing server configurations
+        """
+        if not HAS_MCP_SUPPORT:
+            self.logger.warning("Cannot load MCP config: MCP support is not available")
+            return
+            
+        if "mcpServers" not in config:
+            self.logger.warning("No MCP servers configured")
+            return
+            
+        mcp_servers = config.get("mcpServers", {})
+        for name, server_config in mcp_servers.items():
+            self.servers[name] = MCPServer(name, server_config)
+            self.logger.info(f"Added MCP server configuration: {name}")
+    
+    async def initialize(self) -> bool:
+        """
+        Initialize all configured MCP servers.
+        
+        Returns:
+            True if at least one server was successfully initialized
+        """
+        if not HAS_MCP_SUPPORT or not self.servers:
+            return False
+            
+        success = False
+        init_tasks = []
+        
+        for name, server in self.servers.items():
+            init_tasks.append(server.initialize())
+            
+        results = await asyncio.gather(*init_tasks, return_exceptions=True)
+        
+        for i, (name, server) in enumerate(self.servers.items()):
+            if isinstance(results[i], bool) and results[i]:
+                self.logger.info(f"Successfully initialized MCP server: {name}")
+                success = True
+            else:
+                self.logger.error(f"Failed to initialize MCP server: {name}")
+                if not isinstance(results[i], bool):
+                    self.logger.error(f"Error: {str(results[i])}")
+                    
+        self.initialized = success
+        return success
+    
+    async def get_all_tools(self) -> List[Dict[str, Any]]:
+        """
+        Get all available tools from all MCP servers.
+        
+        Returns:
+            List of all available tools
+        """
+        if not self.initialized:
+            return []
+            
+        all_tools = []
+        tool_tasks = {}
+        
+        # Create tasks to fetch tools from all servers
+        for name, server in self.servers.items():
+            if server.ready:
+                tool_tasks[name] = asyncio.create_task(server.list_tools())
+                
+        # Wait for all tasks to complete
+        for name, task in tool_tasks.items():
+            try:
+                server_tools = await task
+                for tool in server_tools:
+                    # Add server name to each tool for tracking
+                    tool_copy = tool.copy()
+                    tool_copy["server_name"] = name
+                    all_tools.append(tool_copy)
+            except Exception as e:
+                self.logger.error(f"Error getting tools from {name}: {str(e)}")
+                
+        return all_tools
+    
+    async def convert_tools_to_openai_format(self) -> List[Dict[str, Any]]:
+        """
+        Convert MCP tools to OpenAI tools format.
+        
+        Returns:
+            List of tools in OpenAI format
+        """
+        all_tools = await self.get_all_tools()
+        openai_tools = []
+        
+        for tool in all_tools:
+            # Format the tool for OpenAI
+            openai_tool = {
+                "type": "function",
+                "function": {
+                    "name": f"{tool['server_name']}_{tool['name']}",
+                    "description": tool.get("description", "No description provided"),
+                    "parameters": tool.get("input_schema", {})
+                }
+            }
+            openai_tools.append(openai_tool)
+            
+        return openai_tools
+    
+    async def execute_tool(self, full_tool_name: str, arguments: Dict[str, Any]) -> Any:
+        """
+        Execute a tool on the appropriate MCP server.
+        
+        Args:
+            full_tool_name: Name of the tool including server prefix (e.g. "server_toolname")
+            arguments: Tool arguments
+            
+        Returns:
+            Tool execution result
+            
+        Raises:
+            ValueError: If the server or tool is not found
+        """
+        if not self.initialized:
+            raise ValueError("MCP servers are not initialized")
+            
+        # Split the tool name to get server and actual tool name
+        parts = full_tool_name.split("_", 1)
+        if len(parts) != 2:
+            raise ValueError(f"Invalid tool name format: {full_tool_name}")
+            
+        server_name, tool_name = parts
+        
+        if server_name not in self.servers:
+            raise ValueError(f"MCP server not found: {server_name}")
+            
+        server = self.servers[server_name]
+        if not server.ready:
+            raise ValueError(f"MCP server is not ready: {server_name}")
+            
+        return await server.execute_tool(tool_name, arguments)
+    
+    async def cleanup(self) -> None:
+        """Clean up all MCP server resources."""
+        cleanup_tasks = []
+        for name, server in self.servers.items():
+            cleanup_tasks.append(server.cleanup())
+            
+        if cleanup_tasks:
+            await asyncio.gather(*cleanup_tasks, return_exceptions=True)
+        
+        self.initialized = False
+        self.logger.info("All MCP servers cleaned up")
 
 __version__ = "0.1.0"
 __author__ = "TeaBranch"
@@ -49,10 +386,71 @@ OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL", "http://localhost:8080")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "dummy-key")
 API_ADAPTER_HOST = os.environ.get("API_ADAPTER_HOST", "0.0.0.0")
 API_ADAPTER_PORT = int(os.environ.get("API_ADAPTER_PORT", "8080"))
+MCP_CONFIG_PATH = os.environ.get("MCP_CONFIG_PATH", "servers_config.json")
 
 logger.info(f"Configuration: OPENAI_BASE_URL_INTERNAL={OPENAI_BASE_URL_INTERNAL}, API_PORT={API_ADAPTER_PORT}")
 
+# Initialize the MCP Server Manager
+mcp_manager = MCPServerManager()
+
+# Load MCP configuration if available
+def load_mcp_config():
+    """
+    Load MCP server configurations from JSON file.
+    """
+    if not HAS_MCP_SUPPORT:
+        logger.warning("MCP support is not available. Skipping configuration.")
+        return
+        
+    if not os.path.exists(MCP_CONFIG_PATH):
+        logger.warning(f"MCP configuration file not found at {MCP_CONFIG_PATH}")
+        return
+    
+    try:
+        with open(MCP_CONFIG_PATH, "r") as f:
+            config = json.load(f)
+        
+        logger.info(f"Loaded MCP configuration from {MCP_CONFIG_PATH}")
+        mcp_manager.load_config(config)
+    except Exception as e:
+        logger.error(f"Error loading MCP configuration: {str(e)}")
+
 app = FastAPI(title="API Adapter", description="Adapter for Responses API to chat.completions API")
+
+# Startup event to initialize MCP servers
+@app.on_event("startup")
+async def startup_event():
+    """
+    Initialize services on startup.
+    """
+    # Load MCP configuration
+    load_mcp_config()
+    
+    # Initialize MCP servers
+    if HAS_MCP_SUPPORT and mcp_manager.servers:
+        logger.info("Initializing MCP servers...")
+        try:
+            success = await mcp_manager.initialize()
+            if success:
+                logger.info("MCP servers successfully initialized")
+            else:
+                logger.warning("Failed to initialize MCP servers")
+        except Exception as e:
+            logger.error(f"Error initializing MCP servers: {str(e)}")
+
+# Shutdown event to clean up resources
+@app.on_event("shutdown")
+async def shutdown_event():
+    """
+    Clean up resources on shutdown.
+    """
+    if HAS_MCP_SUPPORT and mcp_manager.initialized:
+        logger.info("Cleaning up MCP servers...")
+        try:
+            await mcp_manager.cleanup()
+            logger.info("MCP servers cleaned up")
+        except Exception as e:
+            logger.error(f"Error cleaning up MCP servers: {str(e)}")
 
 # Add CORS middleware
 app.add_middleware(
@@ -595,6 +993,82 @@ async def create_response(request: Request):
                     logger.info(f"USER INPUT: {item}")
             logger.info("=======================")
         
+        # Add MCP tools to the request if available
+        mcp_tools = []
+        if HAS_MCP_SUPPORT and mcp_manager.initialized:
+            try:
+                mcp_tools = await mcp_manager.convert_tools_to_openai_format()
+                logger.info(f"Adding {len(mcp_tools)} MCP tools to the request")
+                
+                # Add MCP tools to the request
+                if "tools" not in request_data:
+                    request_data["tools"] = []
+                
+                request_data["tools"].extend(mcp_tools)
+                logger.info(f"Added MCP tools: {[tool['function']['name'] for tool in mcp_tools]}")
+            except Exception as e:
+                logger.error(f"Error adding MCP tools to request: {str(e)}")
+        
+        # Check for any tool calls from previous responses
+        needs_tool_execution = False
+        tool_execution_results = []
+        
+        if "input" in request_data and request_data["input"]:
+            for item in request_data["input"]:
+                if isinstance(item, dict) and item.get("type") == "function_call":
+                    # This is a function call that needs execution
+                    tool_name = item.get("name")
+                    arguments = item.get("arguments")
+                    call_id = item.get("call_id")
+                    
+                    if not tool_name or not call_id:
+                        logger.warning(f"Invalid tool call in request: {item}")
+                        continue
+                    
+                    # Check if this is an MCP tool (prefixed with server_name_)
+                    if "_" in tool_name and HAS_MCP_SUPPORT and mcp_manager.initialized:
+                        logger.info(f"Processing MCP tool call: {tool_name}")
+                        try:
+                            # Parse arguments if it's a string
+                            if isinstance(arguments, str):
+                                try:
+                                    arguments = json.loads(arguments)
+                                except json.JSONDecodeError:
+                                    logger.error(f"Invalid JSON arguments for tool call {tool_name}: {arguments}")
+                                    arguments = {"raw_text": arguments}
+                            
+                            # Execute the MCP tool
+                            logger.info(f"Executing MCP tool {tool_name} with arguments: {arguments}")
+                            result = await mcp_manager.execute_tool(tool_name, arguments)
+                            
+                            # Add the result to the response
+                            tool_execution_results.append({
+                                "type": "function_call_output",
+                                "call_id": call_id,
+                                "output": result
+                            })
+                            
+                            needs_tool_execution = True
+                            logger.info(f"MCP tool execution result: {result}")
+                        except Exception as e:
+                            logger.error(f"Error executing MCP tool {tool_name}: {str(e)}")
+                            tool_execution_results.append({
+                                "type": "function_call_output",
+                                "call_id": call_id,
+                                "output": f"Error: {str(e)}"
+                            })
+        
+        # If we need to execute tools, prepare a new request with the results
+        if needs_tool_execution:
+            logger.info(f"Preparing new request with {len(tool_execution_results)} tool execution results")
+            
+            # Add tool results to the input
+            if "input" not in request_data:
+                request_data["input"] = []
+            
+            for result in tool_execution_results:
+                request_data["input"].append(result)
+        
         # Convert request to chat.completions format
         chat_request = convert_responses_to_chat_completions(request_data)
         
@@ -606,8 +1080,7 @@ async def create_response(request: Request):
             # Handle streaming response
             async def stream_response():
                 try:
-                    chat_request['functions'] = chat_request['tools']
-                    logger.info(f"Sending tools: {chat_request['tools']}")
+                    logger.info(f"Sending tools: {len(chat_request.get('tools', []))} tools")
                     async with http_client.stream(
                         "POST",
                         "/v1/chat/completions",
@@ -634,7 +1107,84 @@ async def create_response(request: Request):
             )
         
         else:
-            logger.info("Non-streaming response unsupported")
+            logger.info("Handling non-streaming response")
+            try:
+                response = await http_client.post(
+                    "/v1/chat/completions",
+                    json=chat_request,
+                    timeout=60.0
+                )
+                
+                if response.status_code != 200:
+                    logger.error(f"Error from LLM API: {response.text}")
+                    raise HTTPException(
+                        status_code=response.status_code,
+                        detail=f"Error from LLM API: {response.text}"
+                    )
+                
+                # Process non-streaming response here
+                response_data = response.json()
+                logger.info(f"Got response: {response_data}")
+                
+                # Convert to Responses API format
+                response_id = f"resp_{uuid.uuid4().hex}"
+                message_id = f"msg_{uuid.uuid4().hex}"
+                
+                response_obj = ResponseModel(
+                    id=response_id,
+                    created_at=current_timestamp(),
+                    model=response_data.get("model", ""),
+                    output=[]
+                )
+                
+                # Check for function calls in the completion
+                has_tool_calls = False
+                if "choices" in response_data and response_data["choices"]:
+                    choice = response_data["choices"][0]
+                    if "message" in choice:
+                        message = choice["message"]
+                        
+                        # Process tool calls if any
+                        if "tool_calls" in message and message["tool_calls"]:
+                            has_tool_calls = True
+                            for tool_call in message["tool_calls"]:
+                                if "function" in tool_call:
+                                    function_data = tool_call["function"]
+                                    function_id = tool_call.get("id", f"call_{uuid.uuid4().hex}")
+                                    
+                                    # Add to the output
+                                    response_obj.output.append({
+                                        "id": function_id,
+                                        "type": "function_call",
+                                        "function": {
+                                            "name": function_data.get("name", ""),
+                                            "arguments": function_data.get("arguments", "")
+                                        }
+                                    })
+                        
+                        # Process content if any and no tool calls
+                        if not has_tool_calls and "content" in message and message["content"]:
+                            response_obj.output.append({
+                                "id": message_id,
+                                "type": "message",
+                                "role": "assistant",
+                                "content": [{"type": "output_text", "text": message["content"]}]
+                            })
+                
+                # Set response as completed
+                response_obj.status = "completed"
+                
+                # Add usage information if available
+                if "usage" in response_data:
+                    response_obj.usage = response_data["usage"]
+                
+                return response_obj.dict()
+            except Exception as e:
+                logger.error(f"Error in non-streaming response: {str(e)}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Error processing response: {str(e)}"
+                )
             
     except Exception as e:
         logger.error(f"Error in create_response: {str(e)}")

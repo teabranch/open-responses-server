@@ -2,6 +2,39 @@
 
 A plug-and-play server that speaks OpenAI’s Responses API—no matter which AI backend you’re running.  
 
+# 🛠️ Configure
+
+Minimal config to connect your AI backend:
+
+```
+OPENAI_BASE_URL_INTERNAL=http://localhost:11434  # Ollama, vLLM, Groq, etc.
+OPENAI_BASE_URL=http://localhost:8080            # This server's endpoint
+OPENAI_API_KEY=sk-mockapikey123456789            # Mock key tunneled to backend
+```
+
+Server binding:
+```
+API_ADAPTER_HOST=0.0.0.0
+API_ADAPTER_PORT=8080
+```
+Optional logging:
+```
+LOG_LEVEL=INFO
+LOG_FILE_PATH=./log/api_adapter.log
+```
+
+Configure with CLI tool:
+```
+# Interactive configuration setup
+otc configure
+```
+
+Verify setup:
+```
+# Check if the server is working
+curl http://localhost:8080/v1/models
+```I backend you’re running.  
+
 Ollama? vLLM? LiteLLM? Even OpenAI itself?  
 This server bridges them all to the OpenAI ChatCompletions & Responses API interface.  
 
@@ -43,7 +76,22 @@ uv pip install -e ".[dev]"  # dev dependencies
 Run the server:
 
 ```
+# Using CLI tool (after installation)
+otc start
+
+# Or directly from source
 uv run src/openai_responses_server/cli.py start
+```
+
+Docker deployment:
+
+```
+# Run with Docker
+docker run -p 8080:8080 \
+  -e OPENAI_BASE_URL_INTERNAL=http://your-llm-api:8000 \
+  -e OPENAI_BASE_URL=http://localhost:8080 \
+  -e OPENAI_API_KEY=your-api-key \
+  openai-responses-server
 ```
 
 Works great with docker-compose.yaml for Codex + your own model.

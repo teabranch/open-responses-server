@@ -33,6 +33,7 @@ Verify setup:
 ```
 # Check if the server is working
 curl http://localhost:8080/v1/models
+```
 
 Ollama? vLLM? LiteLLM? Even OpenAI itself?  
 This server bridges them all to the OpenAI ChatCompletions & Responses API interface.  

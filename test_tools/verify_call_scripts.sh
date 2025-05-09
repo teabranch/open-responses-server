@@ -15,12 +15,12 @@ if [ ! -f .env ]; then
     echo "Creating temporary .env file for testing..."
     echo "OPENAI_BASE_URL_INTERNAL=https://api.openai.com" > .env
     echo "OPENAI_API_KEY=sk-test-key-for-ci" >> .env
-    echo "DEFAULT_MODEL_ID=gpt-3.5-turbo" >> .env
+    echo "DEFAULT_MODEL_ID=gpt-4.1-nano" >> .env
 fi
 
 # Export environment variables that may be needed
 export OPENAI_API_KEY=${OPENAI_API_KEY:-"sk-test-key-for-ci"}
-export DEFAULT_MODEL_ID=${DEFAULT_MODEL_ID:-"gpt-3.5-turbo"}
+export DEFAULT_MODEL_ID=${DEFAULT_MODEL_ID:-"gpt-4.1-nano"}
 export OPENAI_BASE_URL_INTERNAL=${OPENAI_BASE_URL_INTERNAL:-"https://api.openai.com"}
 
 # Check each script's syntax without executing the actual commands
@@ -53,9 +53,18 @@ fi
 
 # Check each script
 for script in $(find "$(dirname "$0")" -name "call_*.sh"); do
+    script_name=$(basename "$script")
     echo "Testing variable substitution in $script..."
-    # Use bash -c to expand variables without executing external commands
-    bash -c "source $(dirname "$0")/config.sh && MODEL_ID=gpt-3.5-turbo && source $script > /dev/null 2>&1" || true
+    
+    if [[ "$script_name" == "call_codex.sh" && ! -z "$SERVER_PID" ]]; then
+        # For the Codex script, execute it directly with proper environment variables
+        echo "Running the Codex script..."
+        MODEL_ID=gpt-4.1-nano bash "$script" || true
+    else
+        # For other scripts, just check that variables would be substituted correctly
+        bash -c "source $(dirname "$0")/config.sh && MODEL_ID=gpt-4.1-nano && source $script > /dev/null 2>&1" || true
+    fi
+    
     echo "✓ Completed check for $script"
 done
 

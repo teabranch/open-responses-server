@@ -1,6 +1,6 @@
 #!/bin/bash
-# Use DEFAULT_MODEL_ID environment variable or fallback to a default
-MODEL_ID=${DEFAULT_MODEL_ID:-"meta-llama/llama-4-scout-17b-16e-instruct"}
+# Source common configuration
+source "$(dirname "$0")/config.sh"
 
 curl localhost:8080/responses \
   -H "Content-Type: application/json" \

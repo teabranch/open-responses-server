@@ -1,6 +1,6 @@
 #!/bin/bash
-# Use DEFAULT_MODEL_ID environment variable or fallback to a default
-MODEL_ID=${DEFAULT_MODEL_ID:-"meta-llama/llama-4-maverick-17b-128e-instruct"}
+# Source common configuration
+source "$(dirname "$0")/config.sh"
 
 nvm install 22.15.0
 npm install -g @openai/codex

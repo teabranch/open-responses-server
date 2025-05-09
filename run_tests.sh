@@ -31,12 +31,17 @@ uv pip install pytest-asyncio httpx
 # Create log directory if it doesn't exist
 mkdir -p log
 
-# Run the tests
-echo "Running tests..."
+# Run the main tests
+echo "Running main tests..."
 python -m pytest tests/ -v
 
+# Run the verification for call_* test tools
+echo "Verifying call_* scripts..."
+chmod +x test_tools/verify_call_scripts.sh
+bash test_tools/verify_call_scripts.sh
+
 # Clean up
-echo "Tests completed. Deactivating virtual environment..."
+echo "All tests completed. Deactivating virtual environment..."
 deactivate
 
 echo "All tests completed successfully!" 

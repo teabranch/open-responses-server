@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "randomGenerator": {
+      "command": "python",
+      "args": ["test_tools/random_number_mcp_server.py"],
+      "env": {}
+    }
+  }
+}

@@ -1,0 +1,22 @@
+name: "🗣️ Discussion"
+description: Start a general discussion or ask a question
+labels: [discussion]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form to start a discussion or ask a question.
+  - type: input
+    id: topic
+    attributes:
+      label: Topic
+      description: What is the topic?
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: Details
+      description: Provide more information or context.
+    validations:
+      required: false

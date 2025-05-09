@@ -19,8 +19,26 @@ It handles stateful chat, tool calls, and future features like file search & cod
 ✅ Acts as a drop-in replacement for OpenAI’s Responses API.  
 ✅ Lets you run any backend AI (Ollama, vLLM, Groq, etc.) with OpenAI-compatible clients.  
 ✅ Supports OpenAI’s new Coding Assistant / Codex that requires Responses API.  
-✅ Already battle-tested inside baby-tau: an autonomous AI assistant.  
-✅ Built for hackers, tinkerers, researchers, OSS enthusiasts.  
+✅ Built for innovators, researchers, OSS enthusiasts.  
+✅ Enterprise-ready: scalable, reliable, and secure for production workloads.
+
+⸻
+
+🔥 What’s in & what’s next?
+
+✅ Done	📝 Coming soon
+- ✅ Tool call support	.env file support
+- ✅ Manual & pipeline tests
+- ✅ Docker image build
+- ✅ PyPI release	
+- 📝 Persistent state (not just in-memory)
+- ✅ CLI validation	
+- 📝 hosted tools:
+  - 📝 MCPs support
+  - 📝 Web search: crawl4ai
+  - 📝 File upload + search: graphiti
+  - 📝 Code interpreter
+  - 📝 Computer use APIs
 
 ⸻
 
@@ -43,28 +61,25 @@ uv pip install -e ".[dev]"  # dev dependencies
 Run the server:
 
 ```
+# Using CLI tool (after installation)
+otc start
+
+# Or directly from source
 uv run src/openai_responses_server/cli.py start
 ```
 
+Docker deployment:
+
+```
+# Run with Docker
+docker run -p 8080:8080 \
+  -e OPENAI_BASE_URL_INTERNAL=http://your-llm-api:8000 \
+  -e OPENAI_BASE_URL=http://localhost:8080 \
+  -e OPENAI_API_KEY=your-api-key \
+  openai-responses-server
+```
+
 Works great with docker-compose.yaml for Codex + your own model.
-
-⸻
-
-🔥 What’s in & what’s next?
-
-✅ Done	📝 Coming soon
-- ✅ Tool call support	.env file support
-- ✅ Manual & pipeline tests
-- ✅ Docker image build
-- ✅ PyPI release	
-- 📝 Persistent state (not just in-memory)
-- ✅ CLI validation	
-- 📝 hosted tools:
-  - 📝 MCPs support
-  - 📝 Web search: crawl4ai
-  - 📝 File upload + search: graphiti
-  - 📝 Code interpreter
-  - 📝 Computer use APIs
 
 ⸻
 
@@ -74,7 +89,7 @@ Minimal config to connect your AI backend:
 
 ```
 OPENAI_BASE_URL_INTERNAL=http://localhost:11434  # Ollama, vLLM, Groq, etc.
-OPENAI_BASE_URL=http://localhost:8080            # This server’s endpoint
+OPENAI_BASE_URL=http://localhost:8080            # This server's endpoint
 OPENAI_API_KEY=sk-mockapikey123456789            # Mock key tunneled to backend
 ```
 
@@ -89,6 +104,17 @@ LOG_LEVEL=INFO
 LOG_FILE_PATH=./log/api_adapter.log
 ```
 
+Configure with CLI tool:
+```
+# Interactive configuration setup
+otc configure
+```
+
+Verify setup:
+```
+# Check if the server is working
+curl http://localhost:8080/v1/models
+```
 
 ⸻
 
@@ -129,10 +155,6 @@ Let’s build something powerful—together.
 
 TeaBranch. (2025). openai-responses-server: Open-source server the serves any AI provider with OpenAI ChatCompletions as OpenAI's Responses API and hosted tools. [Computer software]. GitHub. https://github.com/teabranch/openai-responses-server
 
-⸻
 
-# 🏁 Try it with baby-tau
 
-Want to see it in action?
-Check out baby-tau—an AI assistant that can hear, think, and speak.
 

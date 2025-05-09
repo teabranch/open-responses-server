@@ -1,0 +1,29 @@
+name: "💡 Suggestion"
+description: Propose an improvement or new feature
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for your suggestion! Please complete the form below.
+  - type: input
+    id: title
+    attributes:
+      label: Suggestion Title
+      description: Brief summary of the suggestion.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Suggestion Details
+      description: Describe your suggestion or idea.
+    validations:
+      required: true
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Motivation
+      description: Why would this be useful?
+    validations:
+      required: true

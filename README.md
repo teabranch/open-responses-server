@@ -2,39 +2,6 @@
 
 A plug-and-play server that speaks OpenAI’s Responses API—no matter which AI backend you’re running.  
 
-# 🛠️ Configure
-
-Minimal config to connect your AI backend:
-
-```
-OPENAI_BASE_URL_INTERNAL=http://localhost:11434  # Ollama, vLLM, Groq, etc.
-OPENAI_BASE_URL=http://localhost:8080            # This server's endpoint
-OPENAI_API_KEY=sk-mockapikey123456789            # Mock key tunneled to backend
-```
-
-Server binding:
-```
-API_ADAPTER_HOST=0.0.0.0
-API_ADAPTER_PORT=8080
-```
-Optional logging:
-```
-LOG_LEVEL=INFO
-LOG_FILE_PATH=./log/api_adapter.log
-```
-
-Configure with CLI tool:
-```
-# Interactive configuration setup
-otc configure
-```
-
-Verify setup:
-```
-# Check if the server is working
-curl http://localhost:8080/v1/models
-```
-
 Ollama? vLLM? LiteLLM? Even OpenAI itself?  
 This server bridges them all to the OpenAI ChatCompletions & Responses API interface.  
 
@@ -54,6 +21,24 @@ It handles stateful chat, tool calls, and future features like file search & cod
 ✅ Supports OpenAI’s new Coding Assistant / Codex that requires Responses API.  
 ✅ Built for innovators, researchers, OSS enthusiasts.  
 ✅ Enterprise-ready: scalable, reliable, and secure for production workloads.
+
+⸻
+
+🔥 What’s in & what’s next?
+
+✅ Done	📝 Coming soon
+- ✅ Tool call support	.env file support
+- ✅ Manual & pipeline tests
+- ✅ Docker image build
+- ✅ PyPI release	
+- 📝 Persistent state (not just in-memory)
+- ✅ CLI validation	
+- 📝 hosted tools:
+  - 📝 MCPs support
+  - 📝 Web search: crawl4ai
+  - 📝 File upload + search: graphiti
+  - 📝 Code interpreter
+  - 📝 Computer use APIs
 
 ⸻
 
@@ -98,31 +83,13 @@ Works great with docker-compose.yaml for Codex + your own model.
 
 ⸻
 
-🔥 What’s in & what’s next?
-
-✅ Done	📝 Coming soon
-- ✅ Tool call support	.env file support
-- ✅ Manual & pipeline tests
-- ✅ Docker image build
-- ✅ PyPI release	
-- 📝 Persistent state (not just in-memory)
-- ✅ CLI validation	
-- 📝 hosted tools:
-  - 📝 MCPs support
-  - 📝 Web search: crawl4ai
-  - 📝 File upload + search: graphiti
-  - 📝 Code interpreter
-  - 📝 Computer use APIs
-
-⸻
-
 # 🛠️ Configure
 
 Minimal config to connect your AI backend:
 
 ```
 OPENAI_BASE_URL_INTERNAL=http://localhost:11434  # Ollama, vLLM, Groq, etc.
-OPENAI_BASE_URL=http://localhost:8080            # This server’s endpoint
+OPENAI_BASE_URL=http://localhost:8080            # This server's endpoint
 OPENAI_API_KEY=sk-mockapikey123456789            # Mock key tunneled to backend
 ```
 
@@ -137,6 +104,17 @@ LOG_LEVEL=INFO
 LOG_FILE_PATH=./log/api_adapter.log
 ```
 
+Configure with CLI tool:
+```
+# Interactive configuration setup
+otc configure
+```
+
+Verify setup:
+```
+# Check if the server is working
+curl http://localhost:8080/v1/models
+```
 
 ⸻
 

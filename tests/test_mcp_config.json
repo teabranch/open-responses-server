@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "example": {
+      "command": "python",
+      "args": ["-m", "mcp.examples.echo_server"],
+      "env": {
+        "MCP_DEBUG": "true"
+      }
+    }
+  }
+}

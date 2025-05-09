@@ -23,6 +23,9 @@ import time
 import traceback
 from dotenv import load_dotenv
 
+# Import MCP client
+from openai_responses_server.mcp_client import MCPManager, MCPTool
+
 __version__ = "0.1.0"
 __author__ = "TeaBranch"
 __license__ = "MIT"
@@ -69,6 +72,9 @@ http_client = httpx.AsyncClient(
     headers={"Authorization": f"Bearer {OPENAI_API_KEY}"},
     timeout=httpx.Timeout(120.0)  # Increased timeout
 )
+
+# Initialize the MCP Manager
+mcp_manager = MCPManager()
 
 # Pydantic models for requests and responses
 class ToolFunction(BaseModel):
@@ -175,6 +181,29 @@ class ResponseCompleted(BaseModel):
 # Helper functions
 def current_timestamp() -> int:
     return int(time.time())
+
+async def handle_mcp_tool_call(tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Execute a tool call using the MCP manager.
+    
+    Args:
+        tool_name: Name of the tool to execute
+        arguments: Arguments for the tool, as a dictionary
+        
+    Returns:
+        Dictionary containing the tool execution result
+        
+    Raises:
+        Exception: If tool execution fails
+    """
+    try:
+        logger.info(f"Executing MCP tool: {tool_name} with arguments: {arguments}")
+        result = await mcp_manager.execute_tool(tool_name, arguments)
+        logger.info(f"MCP tool execution result: {result}")
+        return result
+    except Exception as e:
+        logger.error(f"Error executing MCP tool {tool_name}: {str(e)}")
+        raise
 
 def convert_responses_to_chat_completions(request_data: dict) -> dict:
     """
@@ -427,21 +456,14 @@ async def process_chat_completions_stream(response):
                                         yield f"data: {json.dumps(in_progress_event.dict())}\n\n"
 
 
-                                        # created_event = ToolCallsCreated(
-                                        #     type="response.tool_calls.created",
-                                        #     item_id=tool_call["item_id"],
-                                        #     output_index=tool_call["output_index"],
-                                        #     tool_call={
-                                        #         "id": tool_call["id"],
-                                        #         "type": tool_call["type"],
-                                        #         "function": {
-                                        #             "name": tool_call["function"]["name"],
-                                        #             "arguments": ""
-                                        #         }
-                                        #     }
-                                        # )
+                                        # Execute MCP tool if applicable
+                                        try:
+                                            tool_name = tool_call["function"]["name"]
+                                            # Parse arguments once we have them
+                                            # We'll get the full arguments in the finish_reason handler
+                                        except Exception as e:
+                                            logger.error(f"Error setting up MCP tool call: {str(e)}")
                                         
-                                        # yield f"data: {json.dumps(created_event.dict())}\n\n"
                                         tool_call_counter += 1
                                 
                                 # Process function arguments if present
@@ -503,6 +525,52 @@ async def process_chat_completions_stream(response):
                                 logger.info(f"Emitting {done_event}")
                                 yield f"data: {json.dumps(done_event.dict())}\n\n"
                                 
+                                # Execute MCP tool if applicable
+                                try:
+                                    tool_name = tool_call["function"]["name"]
+                                    arguments_str = tool_call["function"]["arguments"]
+                                    try:
+                                        # Try to parse the arguments as JSON
+                                        arguments = json.loads(arguments_str)
+                                    except json.JSONDecodeError:
+                                        logger.error(f"Failed to parse arguments as JSON: {arguments_str}")
+                                        arguments = {"raw_arguments": arguments_str}
+                                        
+                                    logger.info(f"Executing MCP tool: {tool_name} with arguments: {arguments}")
+                                    
+                                    # Execute the tool asynchronously
+                                    tool_result = await handle_mcp_tool_call(tool_name, arguments)
+                                    
+                                    # Add the tool result to the response object as function_call_output
+                                    function_output = {
+                                        "id": f"output_{uuid.uuid4().hex}",
+                                        "type": "function_call_output",
+                                        "call_id": tool_call["id"],
+                                        "output": tool_result,
+                                        "status": "success"
+                                    }
+                                    response_obj.output.append(function_output)
+                                    
+                                    # Emit in_progress event with the updated response
+                                    in_progress_event = ResponseInProgress(
+                                        type="response.in_progress",
+                                        response=response_obj
+                                    )
+                                    logger.info(f"Emitting in_progress event with tool result")
+                                    yield f"data: {json.dumps(in_progress_event.dict())}\n\n"
+                                    
+                                except Exception as e:
+                                    logger.error(f"Error executing MCP tool: {str(e)}")
+                                    # Add error output to the response
+                                    error_output = {
+                                        "id": f"output_{uuid.uuid4().hex}",
+                                        "type": "function_call_output",
+                                        "call_id": tool_call["id"],
+                                        "output": {"error": str(e)},
+                                        "status": "error"
+                                    }
+                                    response_obj.output.append(error_output)
+                                
                                 # Update response object with tool call
                                 response_obj.output.append({
                                     "id": tool_call["item_id"],
@@ -553,6 +621,27 @@ async def process_chat_completions_stream(response):
             
             yield f"data: {json.dumps(completed_event.dict())}\n\n"
 
+@app.on_event("startup")
+async def startup_event() -> None:
+    """Initialize the MCP manager when the server starts."""
+    try:
+        logger.info("Initializing MCP manager...")
+        await mcp_manager.initialize()
+        logger.info("MCP manager initialized successfully")
+    except Exception as e:
+        logger.error(f"Failed to initialize MCP manager: {str(e)}")
+    
+
+@app.on_event("shutdown")
+async def shutdown_event() -> None:
+    """Cleanup the MCP manager when the server shuts down."""
+    try:
+        logger.info("Cleaning up MCP manager...")
+        await mcp_manager.cleanup()
+        logger.info("MCP manager cleanup completed")
+    except Exception as e:
+        logger.error(f"Error during MCP manager cleanup: {str(e)}")
+
 # API endpoints
 @app.post("/responses")
 async def create_response(request: Request):
@@ -594,6 +683,16 @@ async def create_response(request: Request):
                 elif isinstance(item, str):
                     logger.info(f"USER INPUT: {item}")
             logger.info("=======================")
+            
+        # Add MCP tools to the request if not already present
+        if not request_data.get("tools"):
+            try:
+                mcp_tools = await mcp_manager.get_all_tools()
+                if mcp_tools:
+                    logger.info(f"Adding {len(mcp_tools)} MCP tools to the request")
+                    request_data["tools"] = mcp_tools
+            except Exception as e:
+                logger.error(f"Error adding MCP tools to the request: {str(e)}")
         
         # Convert request to chat.completions format
         chat_request = convert_responses_to_chat_completions(request_data)

@@ -4,9 +4,49 @@ Tests for the server module
 import json
 import pytest
 import asyncio
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, AsyncMock
 from fastapi.testclient import TestClient
-from openai_responses_server.server import app, convert_responses_to_chat_completions
+from openai_responses_server.server import app, convert_responses_to_chat_completions, mcp_manager
+
+# Mock the MCP manager
+@pytest.fixture(autouse=True)
+def mock_mcp_manager():
+    """Mock the MCP manager"""
+    original_initialize = mcp_manager.initialize
+    original_get_all_tools = mcp_manager.get_all_tools
+    original_execute_tool = mcp_manager.execute_tool
+    original_cleanup = mcp_manager.cleanup
+    
+    # Replace with mocks
+    mcp_manager.initialize = AsyncMock()
+    mcp_manager.get_all_tools = AsyncMock(return_value=[
+        {
+            "type": "function",
+            "function": {
+                "name": "test_mcp_tool",
+                "description": "A test MCP tool",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "input": {
+                            "type": "string",
+                            "description": "Test input"
+                        }
+                    }
+                }
+            }
+        }
+    ])
+    mcp_manager.execute_tool = AsyncMock(return_value={"result": "mcp tool executed"})
+    mcp_manager.cleanup = AsyncMock()
+    
+    yield
+    
+    # Restore original methods
+    mcp_manager.initialize = original_initialize
+    mcp_manager.get_all_tools = original_get_all_tools
+    mcp_manager.execute_tool = original_execute_tool
+    mcp_manager.cleanup = original_cleanup
 
 class TestServer:
     """Tests for the server module"""
@@ -159,4 +199,4 @@ class TestServerIntegration:
         async with httpx.AsyncClient() as client:
             response = await client.get(f"{base_url}/health")
             assert response.status_code == 200
-            assert response.json() == {"status": "ok", "adapter": "running"} 
+            assert response.json() == {"status": "ok", "adapter": "running"}

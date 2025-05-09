@@ -62,7 +62,7 @@ for script in $(find "$(dirname "$0")" -name "call_*.sh"); do
         MODEL_ID=gpt-4.1-nano bash "$script" || true
     else
         # For other scripts, just check that variables would be substituted correctly
-        bash -c "source $(dirname "$0")/config.sh && MODEL_ID=gpt-4.1-nano && source $script > /dev/null 2>&1" || true
+        MODEL_ID=gpt-4.1-nano source "$script" > /dev/null 2>&1 || true
     fi
     
     echo "✓ Completed check for $script"

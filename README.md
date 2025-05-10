@@ -133,6 +133,9 @@ Let’s build something powerful—together.
 
 [![Star History Chart](https://api.star-history.com/svg?repos=TeaBranch/openai-responses-server&type=Date)](https://www.star-history.com/#TeaBranch/openai-responses-server&Date)
 
+# Projects using this middleware
+- [Nvidia jetson devices](https://github.com/OriNachum/autonomous-intelligence/tree/main/local-codex) - docker compose with ollama
+
 ⸻
 
 # 📚 Citations & inspirations

@@ -128,6 +128,11 @@ If you think this is cool:
 This is early-stage but already usable in real-world demos.  
 Let’s build something powerful—together.
 
+
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=TeaBranch/openai-responses-server&type=Date)](https://www.star-history.com/#TeaBranch/openai-responses-server&Date)
+
 ⸻
 
 # 📚 Citations & inspirations

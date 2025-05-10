@@ -118,7 +118,7 @@ curl http://localhost:8080/v1/models
 
 ⸻
 
-# 💬 I’d love your support!
+# 💬 We’d love your support!
 
 If you think this is cool:  
 ⭐ Star the repo.  

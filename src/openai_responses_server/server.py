@@ -22,6 +22,13 @@ from pydantic import BaseModel, Field
 import time
 import traceback
 from dotenv import load_dotenv
+from contextlib import AsyncExitStack
+
+# MCP support imports
+from pathlib import Path
+import shutil
+from mcp import ClientSession, StdioServerParameters
+from mcp.client.stdio import stdio_client
 
 __version__ = "0.1.0"
 __author__ = "TeaBranch"
@@ -69,6 +76,93 @@ http_client = httpx.AsyncClient(
     headers={"Authorization": f"Bearer {OPENAI_API_KEY}"},
     timeout=httpx.Timeout(120.0)  # Increased timeout
 )
+
+# Global list to hold initialized MCP servers
+mcp_servers: List["MCPServer"] = []
+
+class MCPServer:
+    """Wrapper for an MCP server session and tool execution."""
+    def __init__(self, name: str, config: dict):
+        self.name = name
+        self.config = config
+        self.exit_stack = AsyncExitStack()
+        self.session: ClientSession | None = None
+        self._cleanup_lock = asyncio.Lock()
+
+    async def initialize(self) -> None:
+        command = shutil.which(self.config.get("command")) if self.config.get("command") != "npx" else shutil.which("npx")
+        if not command:
+            raise ValueError(f"Invalid command for MCP server {self.name}")
+        params = StdioServerParameters(
+            command=command,
+            args=self.config.get("args", []),
+            env={**os.environ, **self.config.get("env", {})} if self.config.get("env") else None,
+        )
+        transport = await self.exit_stack.enter_async_context(stdio_client(params))
+        read, write = transport
+        session = await self.exit_stack.enter_async_context(ClientSession(read, write))
+        await session.initialize()
+        self.session = session
+
+    async def list_tools(self) -> List[Any]:
+        if not self.session:
+            raise RuntimeError(f"MCP server {self.name} not initialized")
+        resp = await self.session.list_tools()
+        tools = []
+        for item in resp:
+            if isinstance(item, tuple) and item[0] == "tools":
+                for tool in item[1]:
+                    tools.append(tool.name)
+        return tools
+
+    async def execute_tool(self, tool_name: str, arguments: dict) -> Any:
+        if not self.session:
+            raise RuntimeError(f"MCP server {self.name} not initialized")
+        return await self.session.call_tool(tool_name, arguments)
+
+    async def cleanup(self) -> None:
+        async with self._cleanup_lock:
+            await self.exit_stack.aclose()
+            self.session = None
+
+async def execute_mcp_tool(tool_name: str, arguments: dict) -> Any:
+    """Finds the appropriate MCP server and executes the tool."""
+    for server in mcp_servers:
+        try:
+            tools = await server.list_tools()
+            if tool_name in tools:
+                return await server.execute_tool(tool_name, arguments)
+        except Exception:
+            continue
+    raise RuntimeError(f"Tool '{tool_name}' not found on any MCP server")
+
+@app.on_event("startup")
+async def startup_mcp_servers():
+    """Initialize all MCP servers defined in servers_config.json on startup."""
+    config_path = Path(__file__).parent / "servers_config.json"
+    try:
+        with open(config_path) as f:
+            cfg = json.load(f)
+        for name, srv in cfg.get("mcpServers", {}).items():
+            server = MCPServer(name, srv)
+            try:
+                await server.initialize()
+                mcp_servers.append(server)
+                logger.info(f"Initialized MCP server: {name}")
+            except Exception as e:
+                logger.error(f"Error initializing MCP server {name}: {e}")
+    except FileNotFoundError:
+        logger.warning("servers_config.json not found. No MCP servers will be available.")
+
+@app.on_event("shutdown")
+async def shutdown_mcp_servers():
+    """Clean up all MCP servers on shutdown."""
+    for server in mcp_servers:
+        try:
+            await server.cleanup()
+            logger.info(f"Cleaned up MCP server: {server.name}")
+        except Exception as e:
+            logger.error(f"Error cleaning up MCP server {server.name}: {e}")
 
 # Pydantic models for requests and responses
 class ToolFunction(BaseModel):

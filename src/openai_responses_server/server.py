@@ -79,6 +79,33 @@ http_client = httpx.AsyncClient(
 
 # Global list to hold initialized MCP servers
 mcp_servers: List["MCPServer"] = []
+# Cache for MCP functions, updated periodically
+mcp_functions_cache: List[Dict[str, Any]] = []
+# Refresh interval for updating MCP tools (in seconds)
+MCP_TOOL_REFRESH_INTERVAL = int(os.environ.get("MCP_TOOL_REFRESH_INTERVAL", "10"))
+
+async def _refresh_mcp_functions() -> None:
+    """Fetch tools from all MCP servers and update the cache."""
+    global mcp_functions_cache
+    new_cache: List[Dict[str, Any]] = []
+    for server in mcp_servers:
+        try:
+            tools = await server.list_tools()
+            tool_entries = []
+            for t in tools:
+                entry = {"name": t["name"], "description": t.get("description"), "parameters": t.get("parameters", {})}
+                tool_entries.append(entry)
+            logger.info(f"Refreshed tools from {server.name}: {[tool['name'] for tool in tool_entries]}")
+            new_cache.extend(tool_entries)
+        except Exception as e:
+            logger.warning(f"Error refreshing tools from {server.name}: {e}")
+    mcp_functions_cache = new_cache
+
+async def _mcp_refresh_loop() -> None:
+    """Background task: periodically refresh MCP tool cache."""
+    while True:
+        await _refresh_mcp_functions()
+        await asyncio.sleep(MCP_TOOL_REFRESH_INTERVAL)
 
 class MCPServer:
     """Wrapper for an MCP server session and tool execution."""
@@ -156,10 +183,18 @@ async def startup_mcp_servers():
                 await server.initialize()
                 mcp_servers.append(server)
                 logger.info(f"Initialized MCP server: {name}")
+                # Log initial tool list per server
+                try:
+                    tools = await server.list_tools()
+                    logger.info(f"Initial tools for {name}: {[t['name'] for t in tools]}")
+                except Exception as e:
+                    logger.warning(f"Could not list tools for {name} on startup: {e}")
             except Exception as e:
                 logger.error(f"Error initializing MCP server {name}: {e}")
     except FileNotFoundError:
         logger.warning("servers_config.json not found. No MCP servers will be available.")
+    # Start background refresh of MCP tools
+    asyncio.create_task(_mcp_refresh_loop())
 
 @app.on_event("shutdown")
 async def shutdown_mcp_servers():
@@ -698,7 +733,17 @@ async def create_response(request: Request):
         
         # Convert request to chat.completions format
         chat_request = convert_responses_to_chat_completions(request_data)
-        
+        # Inject cached MCP tool definitions
+        if mcp_functions_cache:
+            chat_request.pop("tools", None)
+            chat_request["functions"] = mcp_functions_cache
+            logger.info(f"Using cached MCP functions: {[f['name'] for f in mcp_functions_cache]}")
+        else:
+            chat_request.pop("tools", None)
+            chat_request.pop("functions", None)
+            logger.info("No MCP functions cached, sending without functions")
+        # End MCP injection
+
         # Check for streaming mode
         stream = request_data.get("stream", False)
         

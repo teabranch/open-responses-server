@@ -731,6 +731,16 @@ async def create_response(request: Request):
                     logger.info(f"USER INPUT: {item}")
             logger.info("=======================")
         
+        # Inject cached MCP tools into request_data before conversion so conversion sees them
+        if mcp_functions_cache:
+            request_data["tools"] = [
+                {"type": "function", "name": f["name"], "description": f.get("description"), "parameters": f.get("parameters", {})}
+                for f in mcp_functions_cache
+            ]
+            logger.info(f"Injected MCP tools into request_data: {[f['name'] for f in mcp_functions_cache]}")
+        else:
+            request_data.pop("tools", None)
+            logger.info("No MCP functions cached, clearing request_data.tools")
         # Convert request to chat.completions format
         chat_request = convert_responses_to_chat_completions(request_data)
         # Inject cached MCP tool definitions

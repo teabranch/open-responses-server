@@ -516,11 +516,42 @@ async def process_chat_completions_stream(response):
                     # Process delta
                     if "delta" in choice:
                         delta = choice["delta"]
-                        
-                        # Handle tool calls
-                        if "tool_calls" in delta and delta["tool_calls"]:
-                            logger.info(f"tool_calls in {delta}")
 
+                        # Handle OpenAI 'function_call' style deltas
+                        if "function_call" in delta:
+                            func = delta["function_call"]
+                            index = 0
+                            # Initialize tool call entry if first fragment
+                            if index not in tool_calls:
+                                tool_calls[index] = {
+                                    "id": f"call_{uuid.uuid4().hex}",
+                                    "function": {"name": func.get("name", ""), "arguments": ""},
+                                    "output_index": 0
+                                }
+                                # Emit created event for function call
+                                created_evt = ToolCallsCreated(
+                                    type="response.tool_calls.created",
+                                    item_id=tool_calls[index]["id"],
+                                    output_index=0,
+                                    tool_call={"id": tool_calls[index]["id"], "name": tool_calls[index]["function"]["name"], "arguments": ""}
+                                )
+                                yield f"data: {json.dumps(created_evt.dict())}\n\n"
+                            # Append argument fragment if present
+                            if "arguments" in func and func.get("arguments") is not None:
+                                fragment = func.get("arguments")
+                                tool_calls[index]["function"]["arguments"] += fragment
+                                # Emit arguments delta
+                                delta_evt = ToolCallArgumentsDelta(
+                                    type="response.function_call_arguments.delta",
+                                    item_id=tool_calls[index]["id"],
+                                    output_index=0,
+                                    delta=fragment
+                                )
+                                yield f"data: {json.dumps(delta_evt.dict())}\n\n"
+                            continue  # skip other tool call handling
+
+                        # Handle legacy 'tool_calls' schema
+                        if "tool_calls" in delta and delta["tool_calls"]:
                             for tool_delta in delta["tool_calls"]:
                                 index = tool_delta.get("index", 0)
                                 

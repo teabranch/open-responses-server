@@ -104,15 +104,21 @@ class MCPServer:
         await session.initialize()
         self.session = session
 
-    async def list_tools(self) -> List[Any]:
+    async def list_tools(self) -> List[Dict[str, Any]]:
+        """List available tools with metadata from the server."""
         if not self.session:
             raise RuntimeError(f"MCP server {self.name} not initialized")
         resp = await self.session.list_tools()
-        tools = []
+        tools: List[Dict[str, Any]] = []
         for item in resp:
             if isinstance(item, tuple) and item[0] == "tools":
                 for tool in item[1]:
-                    tools.append(tool.name)
+                    # Gather name, description, and parameters schema
+                    tools.append({
+                        "name": tool.name,
+                        "description": getattr(tool, "description", None),
+                        "parameters": getattr(tool, "inputSchema", {}),
+                    })
         return tools
 
     async def execute_tool(self, tool_name: str, arguments: dict) -> Any:
@@ -126,12 +132,13 @@ class MCPServer:
             self.session = None
 
 async def execute_mcp_tool(tool_name: str, arguments: dict) -> Any:
-    """Finds the appropriate MCP server and executes the tool."""
+    """Finds the appropriate MCP server hosting the tool and executes it."""
     for server in mcp_servers:
         try:
             tools = await server.list_tools()
-            if tool_name in tools:
-                return await server.execute_tool(tool_name, arguments)
+            for tool in tools:
+                if tool.get("name") == tool_name:
+                    return await server.execute_tool(tool_name, arguments)
         except Exception:
             continue
     raise RuntimeError(f"Tool '{tool_name}' not found on any MCP server")
@@ -700,8 +707,28 @@ async def create_response(request: Request):
             # Handle streaming response
             async def stream_response():
                 try:
-                    chat_request['functions'] = chat_request['tools']
-                    logger.info(f"Sending tools: {chat_request['tools']}")
+                    # Fetch available MCP tools and format as functions for chat.completions
+                    mcp_functions = []
+                    for server in mcp_servers:
+                        try:
+                            for t in await server.list_tools():
+                                mcp_functions.append({
+                                    "name": t["name"],
+                                    "description": t.get("description"),
+                                    "parameters": t.get("parameters", {}),
+                                })
+                        except Exception as e:
+                            logger.warning(f"Error listing tools from {server.name}: {e}")
+                    # Only include functions if we have them
+                    if mcp_functions:
+                        chat_request.pop("tools", None)
+                        chat_request["functions"] = mcp_functions
+                        logger.info(f"Sending functions: {mcp_functions}")
+                    else:
+                        # Ensure no tools/functions key in request
+                        chat_request.pop("tools", None)
+                        chat_request.pop("functions", None)
+                        logger.info("No MCP functions available, sending without functions")
                     async with http_client.stream(
                         "POST",
                         "/v1/chat/completions",

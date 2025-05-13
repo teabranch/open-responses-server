@@ -95,7 +95,7 @@ async def _refresh_mcp_functions() -> None:
             for t in tools:
                 entry = {"name": t["name"], "description": t.get("description"), "parameters": t.get("parameters", {})}
                 tool_entries.append(entry)
-            logger.info(f"Refreshed tools from {server.name}: {[tool['name'] for tool in tool_entries]}")
+            #logger.info(f"Refreshed tools from {server.name}: {[tool['name'] for tool in tool_entries]}")
             new_cache.extend(tool_entries)
         except Exception as e:
             logger.warning(f"Error refreshing tools from {server.name}: {e}")
@@ -619,10 +619,49 @@ async def process_chat_completions_stream(response):
                             
                             yield f"data: {json.dumps(text_event.dict())}\n\n"
                     
-                    # Check for finish_reason
                     if "finish_reason" in choice and choice["finish_reason"] is not None:
                         logger.info(f"Received finish_reason: {choice['finish_reason']}")
                         
+                        # If the finish reason indicates a function call, execute the tool via MCP
+                        if choice["finish_reason"] == "function_call":
+                            logger.info("Executing MCP tool call")
+                            for index, tool_call in tool_calls.items():
+                                # Parse the arguments JSON
+                                try:
+                                    args = json.loads(tool_call["function"]["arguments"])
+                                except Exception:
+                                    args = {}
+                                # Execute MCP tool
+                                try:
+                                    result = await execute_mcp_tool(tool_call["function"]["name"], args)
+                                except Exception as e:
+                                    result = {"error": str(e)}
+                                logger.info(f"MCP tool result for {tool_call['function']['name']}: {result}")
+                                # Append as function_call_output
+                                response_obj.output.append({
+                                    "id": tool_call["id"],
+                                    "type": "function_call_output",
+                                    "call_id": tool_call["id"],
+                                    "output": result
+                                })
+                                # Emit a text delta for the tool result as JSON string
+                                text = json.dumps(result)
+                                text_event = OutputTextDelta(
+                                    type="response.output_text.delta",
+                                    item_id=tool_call["id"],
+                                    output_index=0,
+                                    delta=text
+                                )
+                                yield f"data: {json.dumps(text_event.dict())}\n\n"
+                                # After tool execution, complete the response
+                                response_obj.status = "completed"
+                                completed_event = ResponseCompleted(
+                                    type="response.completed",
+                                    response=response_obj
+                                )
+                                logger.info(f"Emitting completed event after function_call: {completed_event}")
+                                yield f"data: {json.dumps(completed_event.dict())}\n\n"
+                                return  # End streaming after function result
                         # If the finish reason is "tool_calls", emit the arguments.done events
                         if choice["finish_reason"] == "tool_calls":
                             for index, tool_call in tool_calls.items():

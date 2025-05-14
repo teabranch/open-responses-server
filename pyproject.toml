@@ -41,10 +41,10 @@ dev = [
 ]
 
 [project.scripts]
-otc = "openai_responses_server.cli:main"
+otc = "open_responses_server.cli:main"
 
 [tool.setuptools.dynamic]
-version = {attr = "openai_responses_server.version.__version__"}
+version = {attr = "open_responses_server.version.__version__"}
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -114,7 +114,7 @@ async def test_async_function():
 If encountering an `ImportError` in `test_start_server_subprocess_fallback`, verify that the mocking is correctly set up. The test should mock imports by manipulating `sys.modules`:
 
 ```python
-with patch.dict('sys.modules', {'uvicorn': None, 'openai_responses_server.server': None}):
+with patch.dict('sys.modules', {'uvicorn': None, 'open_responses_server.server': None}):
     # The import will fail with ImportError
     with patch('module.subprocess') as mock_subprocess:
         # Test subprocess fallback
@@ -134,13 +134,13 @@ uv pip install pytest-asyncio httpx
 To generate a test coverage report:
 
 ```bash
-python -m pytest --cov=openai_responses_server tests/
+python -m pytest --cov=open_responses_server tests/
 ```
 
 For HTML coverage report:
 
 ```bash
-python -m pytest --cov=openai_responses_server --cov-report=html tests/
+python -m pytest --cov=open_responses_server --cov-report=html tests/
 ```
 
 The HTML report will be generated in the `htmlcov` directory. 

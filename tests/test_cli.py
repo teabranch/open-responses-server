@@ -7,7 +7,7 @@ import pytest
 import tempfile
 from unittest.mock import patch, MagicMock
 from pathlib import Path
-from openai_responses_server.cli import start_server, configure_server, main
+from open_responses_server.cli import start_server, configure_server, main
 
 class TestCLI:
     """Tests for the CLI module"""
@@ -17,13 +17,13 @@ class TestCLI:
         """Test that start_server exists and can be called"""
         # Instead of trying to start a real server, we'll fully mock uvicorn
         # and the import process to avoid any actual server startup
-        with patch('openai_responses_server.cli.os.makedirs'):
+        with patch('open_responses_server.cli.os.makedirs'):
             # Mock the import of uvicorn directly
             mock_uvicorn = MagicMock()
             with patch.dict('sys.modules', {'uvicorn': mock_uvicorn}):
                 # Mock the import of the app module
                 mock_app = MagicMock()
-                with patch.dict('sys.modules', {'openai_responses_server.server': mock_app}):
+                with patch.dict('sys.modules', {'open_responses_server.server': mock_app}):
                     # Call start_server
                     start_server(host="127.0.0.1", port="9000")
                     
@@ -34,16 +34,16 @@ class TestCLI:
     def test_start_server_subprocess_fallback(self, python_executable):
         """Test that start_server falls back to subprocess if imports fail"""
         # Force the ImportError condition by patching the specific imports in the CLI module
-        with patch('openai_responses_server.cli.os.makedirs'):
-            with patch.dict('sys.modules', {'uvicorn': None, 'openai_responses_server.server': None}):
+        with patch('open_responses_server.cli.os.makedirs'):
+            with patch.dict('sys.modules', {'uvicorn': None, 'open_responses_server.server': None}):
                 # This will cause the import statements to fail with ImportError
-                with patch('openai_responses_server.cli.subprocess') as mock_subprocess:
+                with patch('open_responses_server.cli.subprocess') as mock_subprocess:
                     # Call start_server
                     start_server(host="127.0.0.1", port="9000")
                     
                     # Verify subprocess.run was called correctly
                     mock_subprocess.run.assert_called_once_with(
-                        ["uvicorn", "openai_responses_server.server:app", "--host", "127.0.0.1", "--port", "9000"],
+                        ["uvicorn", "open_responses_server.server:app", "--host", "127.0.0.1", "--port", "9000"],
                         check=True
                     )
     
@@ -125,34 +125,34 @@ class TestCLI:
     def test_main_start_command(self):
         """Test the main function with 'start' command"""
         with patch('sys.argv', ['otc', 'start']):
-            with patch('openai_responses_server.cli.start_server') as mock_start:
+            with patch('open_responses_server.cli.start_server') as mock_start:
                 main()
                 mock_start.assert_called_once()
     
     def test_main_configure_command(self):
         """Test the main function with 'configure' command"""
         with patch('sys.argv', ['otc', 'configure']):
-            with patch('openai_responses_server.cli.configure_server') as mock_configure:
+            with patch('open_responses_server.cli.configure_server') as mock_configure:
                 main()
                 mock_configure.assert_called_once()
     
     def test_main_help_command(self):
         """Test the main function with 'help' command"""
         with patch('sys.argv', ['otc', 'help']):
-            with patch('openai_responses_server.cli.help_command') as mock_help:
+            with patch('open_responses_server.cli.help_command') as mock_help:
                 main()
                 mock_help.assert_called_once()
     
     def test_main_version_flag(self):
         """Test the main function with '--version' flag"""
         with patch('sys.argv', ['otc', '--version']):
-            with patch('openai_responses_server.cli.show_version') as mock_version:
+            with patch('open_responses_server.cli.show_version') as mock_version:
                 main()
                 mock_version.assert_called_once()
     
     def test_main_unknown_command(self):
         """Test the main function with unknown command"""
         with patch('sys.argv', ['otc', 'unknown']):
-            with patch('openai_responses_server.cli.help_command') as mock_help:
+            with patch('open_responses_server.cli.help_command') as mock_help:
                 main()
                 mock_help.assert_called_once() 

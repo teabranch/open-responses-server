@@ -44,7 +44,7 @@ echo "Checking variable substitution..."
 SERVER_PID=""
 if [[ -f "$(dirname "$0")/call_codex.sh" ]]; then
     echo "Starting server for Codex testing..."
-    uv run ./src/openai_responses_server/cli.py start &
+    uv run ./src/open_responses_server/cli.py start &
     SERVER_PID=$!
     echo "Server started with PID: $SERVER_PID"
     # Wait a moment for the server to start up

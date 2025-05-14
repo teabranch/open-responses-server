@@ -1,4 +1,7 @@
-# 🚀 open-responses-server
+# Project description
+# Note - library name changed to open-responses-server to avoid future brand issues with openai.
+
+# 🚀 openai-responses-server
 
 A plug-and-play server that speaks OpenAI’s Responses API—no matter which AI backend you’re running.  
 

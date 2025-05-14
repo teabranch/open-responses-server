@@ -1,3 +1,3 @@
 """
-Test package for openai-responses-server
+Test package for open-responses-server
 """ 

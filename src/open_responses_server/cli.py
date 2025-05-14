@@ -29,7 +29,7 @@ def start_server(host=DEFAULT_HOST, port=DEFAULT_PORT):
         
         # Import modules
         import uvicorn
-        from openai_responses_server.server import app
+        from open_responses_server.server import app
         
         logger.info(f"Starting server on {host}:{port}...")
         # Run the server using uvicorn directly
@@ -112,7 +112,7 @@ def help_command():
 
 def show_version():
     """Displays version information."""
-    from openai_responses_server import __version__
+    from open_responses_server import __version__
     print(f"OpenAI Responses API Server CLI v{__version__}")
 
 def main():

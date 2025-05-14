@@ -57,7 +57,7 @@ jobs:
 
     environment:
       name: pypi
-      url: https://pypi.org/project/openai-responses-server
+      url: https://pypi.org/project/open-responses-server
 
     steps:
       - name: Retrieve release distributions

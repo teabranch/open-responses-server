@@ -398,7 +398,7 @@ EMBEDDING_MODEL=sentence-transformers/all-MiniLM-L6-v2
 Ensure your project has the following directory structure:
 
 ```
-openai-responses-server/
+open-responses-server/
 ├── src/
 │   └── openai_responses_server/
 │       ├── __init__.py

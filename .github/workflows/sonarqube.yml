@@ -40,7 +40,7 @@ jobs:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         with:
           args: >
-            -Dsonar.projectKey=teabranch_openai-responses-server
+            -Dsonar.projectKey=teabranch_open-responses-server
             -Dsonar.organization=${{ github.repository_owner }}
             -Dsonar.python.coverage.reportPaths=coverage.xml
             -Dsonar.sources=src/

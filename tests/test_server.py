@@ -7,6 +7,7 @@ import asyncio
 from unittest.mock import patch, MagicMock
 from fastapi.testclient import TestClient
 from open_responses_server.server import app, convert_responses_to_chat_completions
+# Note: Tool-related tests have been moved to test_tools_manager.py
 
 class TestServer:
     """Tests for the server module"""

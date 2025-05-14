@@ -17,6 +17,12 @@ from fastapi import FastAPI, Request, Response, BackgroundTasks, HTTPException, 
 from fastapi.responses import StreamingResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
+from .tools_manager import (
+    Tool, ToolFunction, ToolCallArgumentsDelta, ToolCallArgumentsDone,
+    convert_tools_to_chat_completions_format, extract_tools_from_request,
+    process_tool_calls_in_delta, process_tool_calls_completion, 
+    update_response_with_tool_calls, process_tool_responses_in_input
+)
 import httpx
 from pydantic import BaseModel, Field
 import time
@@ -71,15 +77,6 @@ http_client = httpx.AsyncClient(
 )
 
 # Pydantic models for requests and responses
-class ToolFunction(BaseModel):
-    name: str
-    description: Optional[str] = None
-    parameters: Optional[Dict] = None
-
-class Tool(BaseModel):
-    type: str = "function"
-    function: ToolFunction
-
 class OutputText(BaseModel):
     type: str = "output_text"
     text: str
@@ -136,24 +133,6 @@ class ResponseCreateRequest(BaseModel):
     user: Optional[str] = None
     metadata: Optional[Dict] = None
 
-class ToolCallArgumentsDelta(BaseModel):
-    type: str = "response.function_call_arguments.delta"
-    item_id: str
-    output_index: int
-    delta: str
-
-class ToolCallArgumentsDone(BaseModel):
-    type: str = "response.function_call_arguments.done"
-    id: str
-    output_index: int
-    arguments: str
-
-class ToolCallsCreated(BaseModel):
-    type: str = "response.tool_calls.created"
-    item_id: str
-    output_index: int
-    tool_call: Dict
-
 class OutputTextDelta(BaseModel):
     type: str = "response.output_text.delta"
     item_id: str
@@ -209,37 +188,10 @@ def convert_responses_to_chat_completions(request_data: dict) -> dict:
     if "instructions" in request_data:
         messages.append({"role": "system", "content": request_data["instructions"]})
     
-    # Check for previous tool responses in the input
+    # Process input messages and tool responses using tools_manager
     if "input" in request_data and request_data["input"]:
-        user_message = {"role": "user", "content": ""}
         logger.info(f"Processing input messages {request_data['input']}")
-        for i, item in enumerate(request_data["input"]):
-            if isinstance(item, dict):
-                if item.get("type") == "message" and item.get("role") == "user":
-                    # Add user message
-                    content = ""
-                    if "content" in item:
-                        for j, content_item in enumerate(item["content"]):
-                            if isinstance(content_item, dict) and content_item.get("type") == "input_text":
-                                content = content_item.get("text", "")
-                    user_message = {"role": "user", "content": content}
-                    messages.append(user_message)
-                    # Log user message content for context
-                    logger.info(f"User message: {content[:100]}...")
-                    
-                elif item.get("type") == "function_call_output":
-                    # Add tool output - log tool usage
-                    logger.info(f"Tool response: call_id={item.get('call_id')}, output={item.get('output', '')[:50]}...")
-                    tool_message = {
-                        "role": "tool",
-                        "tool_call_id": item.get("call_id"),
-                        "content": item.get("output", "")
-                    }
-                    messages.append(tool_message)
-            elif isinstance(item, str):
-                # Simple string input
-                messages.append({"role": "user", "content": item})
-                logger.info(f"User message (string): {item[:100]}...")
+        messages.extend(process_tool_responses_in_input(request_data["input"]))
     
     # If we only have a system message or no messages at all, add an empty user message
     if not messages or (len(messages) == 1 and messages[0]["role"] == "system"):
@@ -247,39 +199,10 @@ def convert_responses_to_chat_completions(request_data: dict) -> dict:
     
     chat_request["messages"] = messages
 
-    # Convert tools - log each tool being processed
+    # Convert tools using tools_manager
     if "tools" in request_data and request_data["tools"]:
-        chat_request["tools"] = []
-        
-        for i, tool in enumerate(request_data["tools"]):
-            try:
-                logger.info(f"Trying to convert tool {i}: {tool}")
-                if not isinstance(tool, dict) or "type" not in tool or tool.get("type") != "function":
-                    continue
-                    
-                function_obj = tool
-                if not isinstance(function_obj, dict) or "name" not in function_obj:
-                    continue
-                
-                function_data = {
-                    "name": function_obj["name"],
-                }
-                
-                # Log tool information
-                logger.info(f"Converting Tool {i}: {function_data['name']}")
-                
-                if "description" in function_obj:
-                    function_data["description"] = function_obj["description"]
-                    
-                if "parameters" in function_obj:
-                    function_data["parameters"] = function_obj["parameters"]
-                
-                chat_request["tools"].append({
-                    "type": "function",
-                    "function": function_data
-                })
-            except Exception as e:
-                logger.error(f"Error processing tool {i}: {str(e)}")
+        tools = extract_tools_from_request(request_data)
+        chat_request["tools"] = convert_tools_to_chat_completions_format(tools)
     
     # Handle tool_choice
     if "tool_choice" in request_data:
@@ -381,83 +304,24 @@ async def process_chat_completions_stream(response):
                     if "delta" in choice:
                         delta = choice["delta"]
                         
-                        # Handle tool calls
+                        # Handle tool calls using the tools_manager
                         if "tool_calls" in delta and delta["tool_calls"]:
-                            logger.info(f"tool_calls in {delta}")
-
-                            for tool_delta in delta["tool_calls"]:
-                                index = tool_delta.get("index", 0)
-                                
-                                # Initialize tool call if not exists
-                                if index not in tool_calls:
-                                    tool_calls[index] = {
-                                        "id": tool_delta.get("id", f"call_{uuid.uuid4().hex}"),
-                                        "type": tool_delta.get("type", "function"),
-                                        "function": {
-                                            "name": tool_delta.get("function", {}).get("name", ""),
-                                            "arguments": tool_delta.get("function", {}).get("arguments", ""),
-                                        },
-                                        "item_id": f"tool_call_{uuid.uuid4().hex}",
-                                        "output_index": tool_call_counter
-                                    }
-                                    
-                                    # If we got a tool name, emit the created event
-                                    if "function" in tool_delta and "name" in tool_delta["function"]:
-                                        tool_call = tool_calls[index]
-                                        tool_call["function"]["name"] = tool_delta["function"]["name"]
-                                        # Log tool call creation
-                                        logger.info(f"Tool call created: {tool_call['function']['name']}")
-                                        # {'role': 'assistant', 'content': '', 'tool_calls': [{'id': 'call_ceizcjxw', 'index': 0, 'type': 'function', 'function': {'name': 'apply_patch', 'arguments': '{"cmd":"[\\"apply_patch\\", \\"*** Begin Patch\\\\n*** Update File: path/to/file.py\\\\n@@ def example():\\\\n-  pass\\\\n+  return 123\\\\n*** End Patch\\"]"}'}}]}, 'finish_reason': None}]}
-
-                                        response_obj.output.append({
-                                            "arguments": tool_call["function"]["arguments"],
-                                            "call_id": tool_call["id"],
-                                            "name": tool_call["function"]["name"],
-                                            "type": "function_call",
-                                            "id": tool_call["id"],
-                                            "status": "in_progress"
-                                        })
-                                        # Also emit the in_progress event
-                                        in_progress_event = ResponseInProgress(
-                                            type="response.in_progress",
-                                            response=response_obj
-                                        )
-                                        
-                                        logger.info(f"Emitting {in_progress_event}")
-                                        yield f"data: {json.dumps(in_progress_event.dict())}\n\n"
-
-
-                                        # created_event = ToolCallsCreated(
-                                        #     type="response.tool_calls.created",
-                                        #     item_id=tool_call["item_id"],
-                                        #     output_index=tool_call["output_index"],
-                                        #     tool_call={
-                                        #         "id": tool_call["id"],
-                                        #         "type": tool_call["type"],
-                                        #         "function": {
-                                        #             "name": tool_call["function"]["name"],
-                                        #             "arguments": ""
-                                        #         }
-                                        #     }
-                                        # )
-                                        
-                                        # yield f"data: {json.dumps(created_event.dict())}\n\n"
-                                        tool_call_counter += 1
-                                
-                                # Process function arguments if present
-                                if "function" in tool_delta and "arguments" in tool_delta["function"]:
-                                    arg_fragment = tool_delta["function"]["arguments"]
-                                    tool_calls[index]["function"]["arguments"] += arg_fragment
-                                    
-                                    # Emit delta event
-                                    args_event = ToolCallArgumentsDelta(
-                                        type="response.function_call_arguments.delta",
-                                        item_id=tool_calls[index]["item_id"],
-                                        output_index=tool_calls[index]["output_index"],
-                                        delta=arg_fragment
-                                    )
-                                    
-                                    yield f"data: {json.dumps(args_event.dict())}\n\n"
+                            # Process tool calls and get events to emit
+                            tool_calls, tool_call_counter, tool_events = process_tool_calls_in_delta(
+                                delta, tool_calls, tool_call_counter, response_obj
+                            )
+                            
+                            # Emit any tool events
+                            for event in tool_events:
+                                yield f"data: {json.dumps(event.dict())}\n\n"
+                            
+                            # Emit the in_progress event after tool updates
+                            in_progress_event = ResponseInProgress(
+                                type="response.in_progress",
+                                response=response_obj
+                            )
+                            logger.info(f"Emitting progress after tool update: {in_progress_event}")
+                            yield f"data: {json.dumps(in_progress_event.dict())}\n\n"
                         
                         # Handle content (text)
                         elif "content" in delta and delta["content"] is not None:
@@ -470,7 +334,7 @@ async def process_chat_completions_stream(response):
                                     "id": message_id,
                                     "type": "message",
                                     "role": "assistant",
-                                    "content": [{"type": "output_text", "text": output_text_content or "(No update)"}]  # Updated to use [{}] instead of []
+                                    "content": [{"type": "output_text", "text": output_text_content or "(No update)"}]
                                 })
                             
                             # Emit text delta event
@@ -487,31 +351,17 @@ async def process_chat_completions_stream(response):
                     if "finish_reason" in choice and choice["finish_reason"] is not None:
                         logger.info(f"Received finish_reason: {choice['finish_reason']}")
                         
-                        # If the finish reason is "tool_calls", emit the arguments.done events
+                        # Process tool call completion events using tools_manager
                         if choice["finish_reason"] == "tool_calls":
-                            for index, tool_call in tool_calls.items():
-                                # Log the complete tool call arguments
-                                logger.info(f"Tool call completed: {tool_call['function']['name']} with arguments: {tool_call['function']['arguments']}")
+                            tool_completion_events = process_tool_calls_completion(tool_calls, choice)
+                            
+                            # Emit tool completion events
+                            for event in tool_completion_events:
+                                logger.info(f"Emitting tool completion event: {event}")
+                                yield f"data: {json.dumps(event.dict())}\n\n"
                                 
-                                done_event = ToolCallArgumentsDone(
-                                    type="response.function_call_arguments.done",
-                                    id=tool_call["item_id"],
-                                    #=f'{tool_call["item_id"]}_{uuid.uuid().hex}',
-                                    output_index=tool_call["output_index"],
-                                    arguments=tool_call["function"]["arguments"]
-                                )
-                                logger.info(f"Emitting {done_event}")
-                                yield f"data: {json.dumps(done_event.dict())}\n\n"
-                                
-                                # Update response object with tool call
-                                response_obj.output.append({
-                                    "id": tool_call["item_id"],
-                                    "type": "tool_call",
-                                    "function": {
-                                        "name": tool_call["function"]["name"],
-                                        "arguments": tool_call["function"]["arguments"]
-                                    }
-                                })
+                            # Update response with completed tool calls
+                            response_obj = update_response_with_tool_calls(response_obj, tool_calls)
                         
                         # If the finish reason is "stop", emit the completed event
                         if choice["finish_reason"] == "stop":
@@ -606,8 +456,11 @@ async def create_response(request: Request):
             # Handle streaming response
             async def stream_response():
                 try:
-                    chat_request['functions'] = chat_request['tools']
-                    logger.info(f"Sending tools: {chat_request['tools']}")
+                    # Use tools field for the API call
+                    if 'tools' in chat_request:
+                        chat_request['functions'] = chat_request.pop('tools')
+                        
+                    logger.info(f"Sending functions: {chat_request.get('functions', [])}")
                     async with http_client.stream(
                         "POST",
                         "/v1/chat/completions",

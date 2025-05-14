@@ -1,5 +1,3 @@
-<meta name="google-site-verification" content="J30Q74KltlpuEIm-E6bHTG5PvU-Uq8VHWyuutMLk30Y" />
-
 # 🚀 open-responses-server
 
 A plug-and-play server that speaks OpenAI’s Responses API—no matter which AI backend you’re running.  
@@ -167,3 +165,4 @@ TeaBranch. (2025). open-responses-server: Open-source server the serves any AI p
 
 
 
+<meta name="google-site-verification" content="SAWMasZ1hKCZm8hnk0xFUgqnFYYPgdrKG8jKuTJa6a0" />

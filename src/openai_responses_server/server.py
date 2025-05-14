@@ -165,8 +165,10 @@ async def execute_mcp_tool(tool_name: str, arguments: dict) -> Any:
             tools = await server.list_tools()
             for tool in tools:
                 if tool.get("name") == tool_name:
+                    logger.info(f"Found tool {tool_name} on server {server.name}")
                     return await server.execute_tool(tool_name, arguments)
         except Exception:
+            logger.warning(f"Error checking tools on server {server.name}: {traceback.format_exc()}")
             continue
     raise RuntimeError(f"Tool '{tool_name}' not found on any MCP server")
 
@@ -676,7 +678,11 @@ async def process_chat_completions_stream(response):
                                     "output": result
                                 })
                                 # Emit a text delta for the tool result as JSON string
-                                text = json.dumps(result)
+                                # Convert result to JSON, with fallback to string if needed
+                                try:
+                                    text = json.dumps(result)
+                                except TypeError:
+                                    text = json.dumps(str(result))
                                 text_event = OutputTextDelta(
                                     type="response.output_text.delta",
                                     item_id=tool_call["id"],

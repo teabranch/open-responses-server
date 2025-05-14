@@ -1,4 +1,4 @@
-# 🚀 openai-responses-server
+# 🚀 open-responses-server
 
 A plug-and-play server that speaks OpenAI’s Responses API—no matter which AI backend you’re running.  
 

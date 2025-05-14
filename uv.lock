@@ -1125,7 +1125,7 @@ wheels = [
 ]
 
 [[package]]
-name = "openai-responses-server"
+name = "open-responses-server"
 source = { editable = "." }
 dependencies = [
     { name = "fastapi" },

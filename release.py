@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Release script for openai-responses-server.
+Release script for open-responses-server.
 This script:
 1. Updates the version number in version.py
 2. Creates a git commit and tag with the new version
@@ -98,7 +98,7 @@ def validate_version(version):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Release script for openai-responses-server")
+    parser = argparse.ArgumentParser(description="Release script for open-responses-server")
     parser.add_argument("version", help="New version number (e.g., 0.1.2)")
     parser.add_argument("--no-publish", action="store_true", help="Don't publish to PyPI")
     

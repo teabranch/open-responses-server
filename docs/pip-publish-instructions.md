@@ -115,7 +115,7 @@ setup(
     description='CLI to manage the Responses API server',
     long_description=open('README.md').read(),
     long_description_content_type='text/markdown',
-    url='https://github.com/teabranch/openai-responses-server',
+    url='https://github.com/teabranch/open-responses-server',
     classifiers=[
         'Programming Language :: Python :: 3',
         'License :: OSI Approved :: MIT License',

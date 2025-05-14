@@ -1,5 +1,5 @@
 #!/bin/bash
-# Script to run tests for openai-responses-server using uv
+# Script to run tests for open-responses-server using uv
 
 set -e  # Exit on error
 

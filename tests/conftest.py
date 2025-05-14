@@ -78,7 +78,7 @@ async def server_process(python_executable, temp_env_file):
     server_cmd = [
         python_executable, 
         "-m", "uvicorn", 
-        "openai_responses_server.server:app", 
+        "open_responses_server.server:app", 
         "--host", "127.0.0.1", 
         "--port", str(server_port)
     ]

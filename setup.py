@@ -21,7 +21,7 @@ setup(
     ],
     entry_points={
         'console_scripts': [
-            'otc=openai_responses_server.cli:main',
+            'otc=open_responses_server.cli:main',
         ],
     },
     author='Ori Nachum',

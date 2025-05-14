@@ -65,7 +65,7 @@ Run the server:
 otc start
 
 # Or directly from source
-uv run src/openai_responses_server/cli.py start
+uv run src/open_responses_server/cli.py start
 ```
 
 Docker deployment:

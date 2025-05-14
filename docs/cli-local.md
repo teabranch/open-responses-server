@@ -7,7 +7,7 @@ To run the `cli.py` script and use it to manage the `server.py`, follow these st
 2. **Run the CLI Script**:
    You can execute the `cli.py` script directly using Python. For example:
    ```bash
-   uv run src/openai_responses_server/cli.py <command>
+   uv run src/open_responses_server/cli.py <command>
    ```
    Replace `<command>` with one of the available commands (`start`, `configure`, or `help`).
 
@@ -19,25 +19,25 @@ To run the `cli.py` script and use it to manage the `server.py`, follow these st
 4. **Example Usage**:
    - To start the server:
      ```bash
-     python src/openai_responses_server/cli.py start
+     python src/open_responses_server/cli.py start
      ```
    - To configure the server:
      ```bash
-     python src/openai_responses_server/cli.py configure
+     python src/open_responses_server/cli.py configure
      ```
    - To display help:
      ```bash
-     python src/openai_responses_server/cli.py help
+     python src/open_responses_server/cli.py help
      ```
 
 5. **Make the Script Executable (Optional)**:
    If you want to run the script without explicitly calling Python, you can make it executable:
    ```bash
-   chmod +x src/openai_responses_server/cli.py
+   chmod +x src/open_responses_server/cli.py
    ```
    Then, run it directly:
    ```bash
-   ./src/openai_responses_server/cli.py <command>
+   ./src/open_responses_server/cli.py <command>
    ```
 
 Let me know if you need further assistance!

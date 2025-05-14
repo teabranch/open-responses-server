@@ -332,10 +332,6 @@ def convert_responses_to_chat_completions(request_data: dict) -> dict:
         "stream": request_data.get("stream", False),
     }
 
-    # Handle instructions (specific to Codex)
-    if "instructions" in request_data:
-        chat_request["system"] = request_data["instructions"]
-
     # Convert any max_output_tokens to max_tokens
     if "max_output_tokens" in request_data:
         chat_request["max_tokens"] = request_data["max_output_tokens"]
@@ -828,7 +824,12 @@ async def create_response(request: Request):
             chat_request.pop("tools", None)
             chat_request.pop("functions", None)
             logger.info("No MCP functions cached, sending without functions")
+        # Remove tool_choice when no functions/tools are provided
+        if not chat_request.get("functions") and not chat_request.get("tools"):
+            chat_request.pop("tool_choice", None)
         # End MCP injection
+        # Remove unsupported tool_choice parameter before sending
+        chat_request.pop("tool_choice", None)
 
         # Check for streaming mode
         stream = request_data.get("stream", False)

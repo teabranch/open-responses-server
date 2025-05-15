@@ -474,7 +474,7 @@ async def process_chat_completions_stream(response):
                 
             # Handle [DONE] message
             if chunk.strip() == "data: [DONE]" or chunk.strip() == "[DONE]":
-                logger.info(f"Received [DONE] message after {chunk_counter} chunks")
+                logger.info(f"Received [DONE] message after {chunk_counter} chunks (status: {response_obj.status})")
                 
                 # If we haven't already completed the response, do it now
                 if response_obj.status != "completed":
@@ -492,10 +492,10 @@ async def process_chat_completions_stream(response):
                         type="response.completed",
                         response=response_obj
                     )
-                    
+                    logger.info(f"Emitting completed event after [DONE]: {completed_event}")
                     yield f"data: {json.dumps(completed_event.dict())}\n\n"
                 continue
-                
+
             # Skip prefix if present
             if chunk.startswith("data: "):
                 chunk = chunk[6:]
@@ -723,6 +723,7 @@ async def process_chat_completions_stream(response):
                         
                         # If the finish reason is "stop", emit the completed event
                         if choice["finish_reason"] == "stop":
+                            logger.info("Received stop finish reason")
                             # If we have any text content, add it to the output
                             if not response_obj.output:
                                 response_obj.output.append({
@@ -740,7 +741,7 @@ async def process_chat_completions_stream(response):
                                 type="response.completed",
                                 response=response_obj
                             )
-                            
+                            logger.info(f"Emitting completed event after stop: {completed_event}")
                             yield f"data: {json.dumps(completed_event.dict())}\n\n"
                 
             except json.JSONDecodeError:

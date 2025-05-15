@@ -470,7 +470,7 @@ async def process_chat_completions_stream(response):
             chunk_counter += 1
             if not chunk.strip():
                 continue
-            logger.info(chunk)
+            #logger.info(chunk)
                 
             # Handle [DONE] message
             if chunk.strip() == "data: [DONE]" or chunk.strip() == "[DONE]":
@@ -737,6 +737,12 @@ async def process_chat_completions_stream(response):
                             logger.info(f"Response completed with text: {output_text_content[:100]}...\n\n")
                                 
                             response_obj.status = "completed"
+                            response_obj.output= [{
+                                "id": message_id,
+                                "type": "message",
+                                "role": "assistant",
+                                "content": [{"type": "output_text", "text": output_text_content or "(No update)"}]
+                            }]
                             completed_event = ResponseCompleted(
                                 type="response.completed",
                                 response=response_obj

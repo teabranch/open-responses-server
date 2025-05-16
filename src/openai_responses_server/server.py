@@ -171,6 +171,21 @@ async def execute_mcp_tool(tool_name: str, arguments: dict) -> Any:
             logger.warning(f"Error checking tools on server {server.name}: {traceback.format_exc()}")
             continue
     raise RuntimeError(f"Tool '{tool_name}' not found on any MCP server")
+    
+def is_mcp_tool(tool_name: str) -> bool:
+    """
+    Determines if the given tool name belongs to an MCP tool.
+    
+    Args:
+        tool_name: The name of the tool to check
+        
+    Returns:
+        bool: True if it's an MCP tool, False otherwise
+    """
+    for func in mcp_functions_cache:
+        if func.get("name") == tool_name:
+            return True
+    return False
 
 @app.on_event("startup")
 async def startup_mcp_servers():
@@ -386,17 +401,10 @@ def convert_responses_to_chat_completions(request_data: dict) -> dict:
                         }
                         messages.append(tool_message)
                     else:
-                        # If no matching tool call, add this as regular content in a user message
-                        logger.info(f"No matching tool call found for {call_id}, adding as user message")
-                        
-                        # Convert the tool output to a string if it's not already
-                        tool_output = item.get("output", "")
-                        if not isinstance(tool_output, str):
-                            tool_output = json.dumps(tool_output)
-                            
-                        # Create a new user message or append to the last one
-                        content = f"Tool result ({item.get('call_id')}): {tool_output}"
-                        messages.append({"role": "user", "content": content})
+                        # If no matching tool call, skip it entirely - the calling app will handle this
+                        # Without a matching tool call, adding a tool response would cause API errors
+                        logger.info(f"No matching tool call found for {call_id}, skipping this tool response")
+                        # We don't add this to the messages at all, as it would cause parsing errors
             elif isinstance(item, str):
                 # Simple string input
                 messages.append({"role": "user", "content": item})
@@ -599,17 +607,22 @@ async def process_chat_completions_stream(response):
                                         tool_call["function"]["name"] = tool_delta["function"]["name"]
                                         # Log tool call creation
                                         logger.info(f"Tool call created: {tool_call['function']['name']}")
-                                        # {'role': 'assistant', 'content': '', 'tool_calls': [{'id': 'call_ceizcjxw', 'index': 0, 'type': 'function', 'function': {'name': 'apply_patch', 'arguments': '{"cmd":"[\\"apply_patch\\", \\"*** Begin Patch\\\\n*** Update File: path/to/file.py\\\\n@@ def example():\\\\n-  pass\\\\n+  return 123\\\\n*** End Patch\\"]"}'}}]}, 'finish_reason': None}]}
-
+                                        
+                                        # Check if this is an MCP tool or a user-defined tool
+                                        is_mcp = is_mcp_tool(tool_call["function"]["name"])
+                                        tool_status = "in_progress" if is_mcp else "ready"
+                                        
+                                        # Add the tool call to the response output in Responses API format
                                         response_obj.output.append({
                                             "arguments": tool_call["function"]["arguments"],
                                             "call_id": tool_call["id"],
                                             "name": tool_call["function"]["name"],
                                             "type": "function_call",
                                             "id": tool_call["id"],
-                                            "status": "in_progress"
+                                            "status": tool_status
                                         })
-                                        # Also emit the in_progress event
+                                        
+                                        # Emit the in_progress event
                                         in_progress_event = ResponseInProgress(
                                             type="response.in_progress",
                                             response=response_obj
@@ -680,50 +693,62 @@ async def process_chat_completions_stream(response):
                         
                         # If the finish reason indicates a function call, execute the tool via MCP
                         if choice["finish_reason"] == "function_call":
-                            logger.info("Executing MCP tool call")
+                            logger.info("Processing tool call")
                             for index, tool_call in tool_calls.items():
+                                tool_name = tool_call["function"]["name"]
                                 # Parse the arguments JSON
                                 try:
                                     args = json.loads(tool_call["function"]["arguments"])
                                 except Exception:
                                     args = {}
-                                # Execute MCP tool
-                                try:
-                                    result = await execute_mcp_tool(tool_call["function"]["name"], args)
-                                except Exception as e:
-                                    result = {"error": str(e)}
-                                logger.info(f"MCP tool result for {tool_call['function']['name']}: {result}")
-                                # Append as function_call_output
-                                response_obj.output.append({
-                                    "id": tool_call["id"],
-                                    "type": "function_call_output",
-                                    "call_id": tool_call["id"],
-                                    "output": result
-                                })
-                                # Emit a text delta for the tool result as JSON string
-                                # Convert result to JSON, with fallback to string if needed
-                                try:
-                                    text = json.dumps(result)
-                                except TypeError:
-                                    text = json.dumps(str(result))
-                                text_event = OutputTextDelta(
-                                    type="response.output_text.delta",
-                                    item_id=tool_call["id"],
-                                    output_index=0,
-                                    delta=text
-                                )
-                                yield f"data: {json.dumps(text_event.dict())}\n\n"
-                                # After tool execution, complete the response
+                                    
+                                # Check if this is an MCP tool or a non-MCP tool
+                                if is_mcp_tool(tool_name):
+                                    logger.info(f"Executing MCP tool: {tool_name}")
+                                    # Execute MCP tool
+                                    try:
+                                        result = await execute_mcp_tool(tool_name, args)
+                                    except Exception as e:
+                                        result = {"error": str(e)}
+                                    logger.info(f"MCP tool result for {tool_name}: {result}")
+                                    
+                                    # Append as function_call_output
+                                    response_obj.output.append({
+                                        "id": tool_call["id"],
+                                        "type": "function_call_output",
+                                        "call_id": tool_call["id"],
+                                        "output": result
+                                    })
+                                    
+                                    # Convert result to JSON, with fallback to string if needed
+                                    try:
+                                        text = json.dumps(result)
+                                    except TypeError:
+                                        text = json.dumps(str(result))
+                                        
+                                    text_event = OutputTextDelta(
+                                        type="response.output_text.delta",
+                                        item_id=tool_call["id"],
+                                        output_index=0,
+                                        delta=text
+                                    )
+                                    yield f"data: {json.dumps(text_event.dict())}\n\n"
+                                else:
+                                    # For non-MCP tools, send the function call back to the client in Responses API format
+                                    logger.info(f"Forwarding non-MCP tool call to client: {tool_name}")
+                                    
+                                    # Include the function call in the response
+                                    response_obj.output.append({
+                                        "id": tool_call["id"],
+                                        "type": "function_call",
+                                        "name": tool_name,
+                                        "arguments": tool_call["function"]["arguments"],
+                                        "call_id": tool_call["id"],
+                                        "status": "ready"
+                                    })
+                                    
+                                # After tool handling, complete the response
                                 response_obj.status = "completed"
-                                # From text ("meta=None content=[TextContent(type='text', text="[{'name': 'listings'}]", annotations=None)] isError=False") 
-                                # sanitize out meta=None content=[TextContent(type='text', text=", and ", annotations=None)] isError=False") 
-                                inner_text = text.replace("meta=None content=[TextContent(type='text', text=", "").replace(", annotations=None)] isError=False", "")
-                                response_obj.output.append({
-                                    "id": message_id,
-                                    "type": "message",
-                                    "role": "assistant",
-                                    "content": [{"type": "output_text", "text": inner_text or "(No update)"}]
-                                })
                                 completed_event = ResponseCompleted(
                                     type="response.completed",
                                     response=response_obj
@@ -737,25 +762,51 @@ async def process_chat_completions_stream(response):
                                 # Log the complete tool call arguments
                                 logger.info(f"Tool call completed: {tool_call['function']['name']} with arguments: {tool_call['function']['arguments']}")
                                 
-                                done_event = ToolCallArgumentsDone(
-                                    type="response.function_call_arguments.done",
-                                    id=tool_call["item_id"],
-                                    #=f'{tool_call["item_id"]}_{uuid.uuid().hex}',
-                                    output_index=tool_call["output_index"],
-                                    arguments=tool_call["function"]["arguments"]
-                                )
-                                logger.info(f"Emitting {done_event}")
-                                yield f"data: {json.dumps(done_event.dict())}\n\n"
+                                # Check if this is an MCP tool or a user-defined tool
+                                is_mcp = is_mcp_tool(tool_call["function"]["name"])
                                 
-                                # Update response object with tool call
-                                response_obj.output.append({
-                                    "id": tool_call["item_id"],
-                                    "type": "tool_call",
-                                    "function": {
-                                        "name": tool_call["function"]["name"],
-                                        "arguments": tool_call["function"]["arguments"]
-                                    }
-                                })
+                                # For non-MCP tools, we leave them in the "ready" state for the client to handle
+                                if is_mcp:
+                                    done_event = ToolCallArgumentsDone(
+                                        type="response.function_call_arguments.done",
+                                        id=tool_call["item_id"],
+                                        output_index=tool_call["output_index"],
+                                        arguments=tool_call["function"]["arguments"]
+                                    )
+                                    logger.info(f"Emitting {done_event}")
+                                    yield f"data: {json.dumps(done_event.dict())}\n\n"
+                                
+                                # Update response object based on tool type
+                                if not is_mcp:
+                                    # For non-MCP tools, keep status "ready" for client handling
+                                    # Find any existing entry for this tool call and update args
+                                    found = False
+                                    for output_item in response_obj.output:
+                                        if output_item.get("id") == tool_call["id"] and output_item.get("type") == "function_call":
+                                            output_item["arguments"] = tool_call["function"]["arguments"]
+                                            found = True
+                                            break
+                                    
+                                    # If not found, add it
+                                    if not found:
+                                        response_obj.output.append({
+                                            "id": tool_call["id"],
+                                            "type": "function_call",
+                                            "name": tool_call["function"]["name"],
+                                            "arguments": tool_call["function"]["arguments"],
+                                            "call_id": tool_call["id"],
+                                            "status": "ready"
+                                        })
+                                else:
+                                    # For MCP tools, add as tool_call
+                                    response_obj.output.append({
+                                        "id": tool_call["item_id"],
+                                        "type": "tool_call",
+                                        "function": {
+                                            "name": tool_call["function"]["name"],
+                                            "arguments": tool_call["function"]["arguments"]
+                                        }
+                                    })
                         
                         # If the finish reason is "stop", emit the completed event
                         if choice["finish_reason"] == "stop":
@@ -857,10 +908,19 @@ async def create_response(request: Request):
                 for f in mcp_functions_cache
             ]
             
-            # Append MCP tools to existing tools
-            request_data["tools"] = existing_tools + mcp_tools
+            # Get the names of existing tools to avoid duplicates
+            existing_tool_names = set(tool["name"] for tool in existing_tools if "name" in tool)
             
-            logger.info(f"Appended {len(mcp_tools)} MCP tools to {len(existing_tools)} existing tools in request_data")
+            # Only add MCP tools that don't conflict with existing tools
+            filtered_mcp_tools = [
+                tool for tool in mcp_tools 
+                if tool["name"] not in existing_tool_names
+            ]
+            
+            # Append filtered MCP tools to existing tools, keeping existing tools first (priority)
+            request_data["tools"] = existing_tools + filtered_mcp_tools
+            
+            logger.info(f"Appended {len(filtered_mcp_tools)} MCP tools to {len(existing_tools)} existing tools in request_data")
         # Convert request to chat.completions format
         chat_request = convert_responses_to_chat_completions(request_data)
         # Inject cached MCP tool definitions
@@ -872,16 +932,35 @@ async def create_response(request: Request):
             if "tools" not in chat_request:
                 chat_request["tools"] = []
                 
-            for func in existing_functions + mcp_functions_cache:
-                chat_request["tools"].append({
-                    "type": "function",
-                    "function": func
-                })
-                
+            # Get existing tool names to avoid duplicates and ensure priority
+            existing_tool_names = set()
+            for tool in chat_request["tools"]:
+                if isinstance(tool, dict) and "function" in tool and "name" in tool["function"]:
+                    existing_tool_names.add(tool["function"]["name"])
+                elif isinstance(tool, dict) and "name" in tool:
+                    existing_tool_names.add(tool["name"])
+            
+            # First convert existing functions to tools format
+            for func in existing_functions:
+                if func.get("name") not in existing_tool_names:
+                    chat_request["tools"].append({
+                        "type": "function",
+                        "function": func
+                    })
+                    existing_tool_names.add(func.get("name", ""))
+            
+            # Then add MCP functions that don't conflict with existing tools
+            for func in mcp_functions_cache:
+                if func.get("name") not in existing_tool_names:
+                    chat_request["tools"].append({
+                        "type": "function",
+                        "function": func
+                    })
+            
             # Remove the functions key as we've converted to tools format
             chat_request.pop("functions", None)
             
-            logger.info(f"Converted {len(existing_functions)} existing functions and {len(mcp_functions_cache)} MCP functions to tools format")
+            logger.info(f"Converted existing functions and MCP functions to tools format")
         # else:
         #     chat_request.pop("tools", None)
         #     chat_request.pop("functions", None)
@@ -926,12 +1005,21 @@ async def create_response(request: Request):
                                 "function": func
                             })
                         
-                        # Add MCP functions as tools
+                        # Get the names of existing tools to avoid duplicates
+                        existing_tool_names = set()
+                        for tool in existing_tools:
+                            if isinstance(tool, dict) and "function" in tool and "name" in tool["function"]:
+                                existing_tool_names.add(tool["function"]["name"])
+                            elif isinstance(tool, dict) and "name" in tool:
+                                existing_tool_names.add(tool["name"])
+                        
+                        # Only add MCP functions that don't conflict with existing tools
                         for func in mcp_functions:
-                            existing_tools.append({
-                                "type": "function",
-                                "function": func
-                            })
+                            if func["name"] not in existing_tool_names:
+                                existing_tools.append({
+                                    "type": "function",
+                                    "function": func
+                                })
                             
                         # Set the tools and remove functions
                         chat_request["tools"] = existing_tools

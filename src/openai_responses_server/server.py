@@ -821,25 +821,31 @@ async def create_response(request: Request):
         
         # Inject cached MCP tools into request_data before conversion so conversion sees them
         if mcp_functions_cache:
-            request_data["tools"] = [
+            # Get existing tools from request_data or initialize empty list
+            existing_tools = request_data.get("tools", [])
+            
+            # Create tools format for MCP functions
+            mcp_tools = [
                 {"type": "function", "name": f["name"], "description": f.get("description"), "parameters": f.get("parameters", {})}
                 for f in mcp_functions_cache
             ]
-            logger.info(f"Injected MCP tools into request_data: {[f['name'] for f in mcp_functions_cache]}")
-        else:
-            request_data.pop("tools", None)
-            logger.info("No MCP functions cached, clearing request_data.tools")
+            
+            # Append MCP tools to existing tools
+            request_data["tools"] = existing_tools + mcp_tools
+            
+            logger.info(f"Appended {len(mcp_tools)} MCP tools to {len(existing_tools)} existing tools in request_data")
         # Convert request to chat.completions format
         chat_request = convert_responses_to_chat_completions(request_data)
         # Inject cached MCP tool definitions
         if mcp_functions_cache:
-            chat_request.pop("tools", None)
-            chat_request["functions"] = mcp_functions_cache
-            logger.info(f"Using cached MCP functions: {[f['name'] for f in mcp_functions_cache]}")
-        else:
-            chat_request.pop("tools", None)
-            chat_request.pop("functions", None)
-            logger.info("No MCP functions cached, sending without functions")
+            # Keep any existing functions and merge with MCP functions
+            existing_functions = chat_request.get("functions", [])
+            chat_request["functions"] = existing_functions + mcp_functions_cache
+            logger.info(f"Appended {len(mcp_functions_cache)} MCP functions to {len(existing_functions)} existing functions")
+        # else:
+        #     chat_request.pop("tools", None)
+        #     chat_request.pop("functions", None)
+        #     logger.info("No MCP functions cached, sending without functions")
         # Remove tool_choice when no functions/tools are provided
         if not chat_request.get("functions") and not chat_request.get("tools"):
             chat_request.pop("tool_choice", None)
@@ -869,14 +875,17 @@ async def create_response(request: Request):
                             logger.warning(f"Error listing tools from {server.name}: {e}")
                     # Only include functions if we have them
                     if mcp_functions:
-                        chat_request.pop("tools", None)
-                        chat_request["functions"] = mcp_functions
-                        logger.info(f"Sending functions: {mcp_functions}")
-                    else:
+                        # Keep any existing tools and merge with MCP functions
+                        existing_functions = chat_request.get("functions", [])
+                        chat_request["functions"] = existing_functions + mcp_functions
+                        logger.info(f"Appended {len(mcp_functions)} MCP functions to {len(existing_functions)} existing functions")
+                    elif "functions" in chat_request and not chat_request["functions"]: 
                         # Ensure no tools/functions key in request
                         chat_request.pop("tools", None)
                         chat_request.pop("functions", None)
                         logger.info("No MCP functions available, sending without functions")
+                    # Log the initial Chat Completions request payload
+                    logger.info(f"Sending Chat Completions request: {json.dumps(chat_request)}")
                     async with http_client.stream(
                         "POST",
                         "/v1/chat/completions",
@@ -934,6 +943,8 @@ async def proxy_endpoint(request: Request, path_name: str):
 
         # Get the request body if available
         body = await request.body()
+        # Log the raw payload being proxied
+        logger.info(f"Proxy request payload for {path_name}: {body.decode('utf-8', errors='ignore')}")
         # Get headers but exclude host
         headers = {k.lower(): v for k, v in request.headers.items() if k.lower() != 'host'}
         

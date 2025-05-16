@@ -364,12 +364,39 @@ def convert_responses_to_chat_completions(request_data: dict) -> dict:
                 elif item.get("type") == "function_call_output":
                     # Add tool output - log tool usage
                     logger.info(f"Tool response: call_id={item.get('call_id')}, output={item.get('output', '')[:50]}...")
-                    tool_message = {
-                        "role": "tool",
-                        "tool_call_id": item.get("call_id"),
-                        "content": item.get("output", "")
-                    }
-                    messages.append(tool_message)
+                    
+                    # Check if we have a corresponding assistant message with a tool call first
+                    call_id = item.get("call_id")
+                    has_matching_tool_call = False
+                    
+                    # Look for a matching tool call in the existing messages
+                    for msg in messages:
+                        if msg.get("role") == "assistant" and "tool_calls" in msg:
+                            for tool_call in msg["tool_calls"]:
+                                if tool_call.get("id") == call_id:
+                                    has_matching_tool_call = True
+                                    break
+                    
+                    if has_matching_tool_call:
+                        # Only add the tool response if we found a matching tool call
+                        tool_message = {
+                            "role": "tool",
+                            "tool_call_id": call_id,
+                            "content": item.get("output", "")
+                        }
+                        messages.append(tool_message)
+                    else:
+                        # If no matching tool call, add this as regular content in a user message
+                        logger.info(f"No matching tool call found for {call_id}, adding as user message")
+                        
+                        # Convert the tool output to a string if it's not already
+                        tool_output = item.get("output", "")
+                        if not isinstance(tool_output, str):
+                            tool_output = json.dumps(tool_output)
+                            
+                        # Create a new user message or append to the last one
+                        content = f"Tool result ({item.get('call_id')}): {tool_output}"
+                        messages.append({"role": "user", "content": content})
             elif isinstance(item, str):
                 # Simple string input
                 messages.append({"role": "user", "content": item})
@@ -840,8 +867,21 @@ async def create_response(request: Request):
         if mcp_functions_cache:
             # Keep any existing functions and merge with MCP functions
             existing_functions = chat_request.get("functions", [])
-            chat_request["functions"] = existing_functions + mcp_functions_cache
-            logger.info(f"Appended {len(mcp_functions_cache)} MCP functions to {len(existing_functions)} existing functions")
+            
+            # Convert to the "tools" format which is more broadly supported
+            if "tools" not in chat_request:
+                chat_request["tools"] = []
+                
+            for func in existing_functions + mcp_functions_cache:
+                chat_request["tools"].append({
+                    "type": "function",
+                    "function": func
+                })
+                
+            # Remove the functions key as we've converted to tools format
+            chat_request.pop("functions", None)
+            
+            logger.info(f"Converted {len(existing_functions)} existing functions and {len(mcp_functions_cache)} MCP functions to tools format")
         # else:
         #     chat_request.pop("tools", None)
         #     chat_request.pop("functions", None)
@@ -875,15 +915,52 @@ async def create_response(request: Request):
                             logger.warning(f"Error listing tools from {server.name}: {e}")
                     # Only include functions if we have them
                     if mcp_functions:
-                        # Keep any existing tools and merge with MCP functions
+                        # Convert to the "tools" format which is more broadly supported
+                        existing_tools = chat_request.get("tools", [])
                         existing_functions = chat_request.get("functions", [])
-                        chat_request["functions"] = existing_functions + mcp_functions
-                        logger.info(f"Appended {len(mcp_functions)} MCP functions to {len(existing_functions)} existing functions")
-                    elif "functions" in chat_request and not chat_request["functions"]: 
-                        # Ensure no tools/functions key in request
-                        chat_request.pop("tools", None)
+                        
+                        # Convert any existing functions to tools format
+                        for func in existing_functions:
+                            existing_tools.append({
+                                "type": "function",
+                                "function": func
+                            })
+                        
+                        # Add MCP functions as tools
+                        for func in mcp_functions:
+                            existing_tools.append({
+                                "type": "function",
+                                "function": func
+                            })
+                            
+                        # Set the tools and remove functions
+                        chat_request["tools"] = existing_tools
                         chat_request.pop("functions", None)
-                        logger.info("No MCP functions available, sending without functions")
+                        
+                        logger.info(f"Converted {len(existing_functions)} existing functions and {len(mcp_functions)} MCP functions to tools format")
+                    elif "functions" in chat_request:
+                        # Convert any existing functions to tools format
+                        existing_tools = chat_request.get("tools", [])
+                        existing_functions = chat_request.get("functions", [])
+                        
+                        if existing_functions:
+                            # Convert functions to tools format
+                            for func in existing_functions:
+                                existing_tools.append({
+                                    "type": "function",
+                                    "function": func
+                                })
+                                
+                            chat_request["tools"] = existing_tools
+                            logger.info(f"Converted {len(existing_functions)} existing functions to tools format")
+                        
+                        # Remove the functions key regardless
+                        chat_request.pop("functions", None)
+                        
+                        if not chat_request.get("tools"):
+                            # If we don't have any tools either, remove that key
+                            chat_request.pop("tools", None)
+                            logger.info("No tools or functions available, sending without them")
                     # Log the initial Chat Completions request payload
                     logger.info(f"Sending Chat Completions request: {json.dumps(chat_request)}")
                     async with http_client.stream(

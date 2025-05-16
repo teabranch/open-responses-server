@@ -76,7 +76,7 @@ docker run -p 8080:8080 \
   -e OPENAI_BASE_URL_INTERNAL=http://your-llm-api:8000 \
   -e OPENAI_BASE_URL=http://localhost:8080 \
   -e OPENAI_API_KEY=your-api-key \
-  open-responses-server
+  ghcr.io/teabranch/open-responses-server:latest
 ```
 
 Works great with docker-compose.yaml for Codex + your own model.
@@ -162,7 +162,3 @@ Let’s build something powerful—together.
 ### Text citation
 
 TeaBranch. (2025). open-responses-server: Open-source server the serves any AI provider with OpenAI ChatCompletions as OpenAI's Responses API and hosted tools. [Computer software]. GitHub. https://github.com/teabranch/open-responses-server
-
-
-
-

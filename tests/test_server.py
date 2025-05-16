@@ -6,7 +6,7 @@ import pytest
 import asyncio
 from unittest.mock import patch, MagicMock
 from fastapi.testclient import TestClient
-from openai_responses_server.server import app, convert_responses_to_chat_completions
+from open_responses_server.server import app, convert_responses_to_chat_completions
 
 class TestServer:
     """Tests for the server module"""
@@ -138,7 +138,7 @@ class TestServer:
     async def test_proxy_endpoint(self, client, mock_httpx_client):
         """Test the proxy endpoint functionality"""
         # Patch the AsyncClient to avoid real HTTP requests
-        with patch('openai_responses_server.server.httpx.AsyncClient', return_value=mock_httpx_client):
+        with patch('open_responses_server.server.httpx.AsyncClient', return_value=mock_httpx_client):
             # Test GET request
             response = client.get("/v1/models")
             assert response.status_code == 200

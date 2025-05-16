@@ -1,4 +1,4 @@
-# 🚀 openai-responses-server
+# 🚀 open-responses-server
 
 A plug-and-play server that speaks OpenAI’s Responses API—no matter which AI backend you’re running.  
 
@@ -47,7 +47,7 @@ It handles stateful chat, tool calls, and future features like file search & cod
 Latest release on PyPI:
 
 ```
-pip install openai-responses-server
+pip install open-responses-server
 ```
 
 Or install from source:
@@ -65,7 +65,7 @@ Run the server:
 otc start
 
 # Or directly from source
-uv run src/openai_responses_server/cli.py start
+uv run src/open_responses_server/cli.py start
 ```
 
 Docker deployment:
@@ -76,7 +76,7 @@ docker run -p 8080:8080 \
   -e OPENAI_BASE_URL_INTERNAL=http://your-llm-api:8000 \
   -e OPENAI_BASE_URL=http://localhost:8080 \
   -e OPENAI_API_KEY=your-api-key \
-  openai-responses-server
+  open-responses-server
 ```
 
 Works great with docker-compose.yaml for Codex + your own model.
@@ -131,7 +131,7 @@ Let’s build something powerful—together.
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=TeaBranch/openai-responses-server&type=Date)](https://www.star-history.com/#TeaBranch/openai-responses-server&Date)
+[![Star History Chart](https://api.star-history.com/svg?repos=TeaBranch/open-responses-server&type=Date)](https://www.star-history.com/#TeaBranch/open-responses-server&Date)
 
 # Projects using this middleware
 - [Nvidia jetson devices](https://github.com/OriNachum/autonomous-intelligence/tree/main/local-codex) - docker compose with ollama
@@ -148,20 +148,20 @@ Let’s build something powerful—together.
 
 ### Code citation
 ```
-@software{openai-responses-server,
+@software{open-responses-server,
   author = {TeaBranch},
-  title = {openai-responses-server: Open-source server bridging any AI provider to OpenAI’s Responses API},
+  title = {open-responses-server: Open-source server bridging any AI provider to OpenAI’s Responses API},
   year = {2025},
   publisher = {GitHub},
   journal = {GitHub Repository},
-  howpublished = {\url{https://github.com/teabranch/openai-responses-server}},
+  howpublished = {\url{https://github.com/teabranch/open-responses-server}},
   commit = {use the commit hash you’re working with}
 }
 ```
 
 ### Text citation
 
-TeaBranch. (2025). openai-responses-server: Open-source server the serves any AI provider with OpenAI ChatCompletions as OpenAI's Responses API and hosted tools. [Computer software]. GitHub. https://github.com/teabranch/openai-responses-server
+TeaBranch. (2025). open-responses-server: Open-source server the serves any AI provider with OpenAI ChatCompletions as OpenAI's Responses API and hosted tools. [Computer software]. GitHub. https://github.com/teabranch/open-responses-server
 
 
 

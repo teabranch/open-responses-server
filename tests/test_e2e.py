@@ -116,7 +116,7 @@ class TestE2E:
         # Start the server using the CLI
         cli_cmd = [
             python_executable,
-            "-m", "openai_responses_server.cli",
+            "-m", "open_responses_server.cli",
             "start"
         ]
         

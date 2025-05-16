@@ -3,7 +3,7 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "openai-responses-server"
+name = "open-responses-server"
 dynamic = ["version"]
 description = "CLI to manage the OpenAI Responses Server that bridges chat completions to responses API calls"
 authors = [
@@ -46,15 +46,15 @@ dev = [
 ]
 
 [project.scripts]
-otc = "openai_responses_server.cli:main"
+otc = "open_responses_server.cli:main"
 
 [tool.setuptools.dynamic]
-version = {attr = "openai_responses_server.version.__version__"}
+version = {attr = "open_responses_server.version.__version__"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [project.urls]
-Homepage = "https://github.com/teabranch/openai-responses-server"
-Documentation = "https://github.com/teabranch/openai-responses-server"
-Repository = "https://github.com/teabranch/openai-responses-server"
+Homepage = "https://github.com/teabranch/open-responses-server"
+Documentation = "https://github.com/teabranch/open-responses-server"
+Repository = "https://github.com/teabranch/open-responses-server"

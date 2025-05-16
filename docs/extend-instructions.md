@@ -75,7 +75,7 @@ pip install crawl4ai
 
 ### 2. Create Web Search Module
 
-Create a new file `web_search.py` in the `src/openai_responses_server` directory:
+Create a new file `web_search.py` in the `src/open_responses_server` directory:
 
 ```python
 #!/usr/bin/env python3
@@ -137,7 +137,7 @@ class WebSearch:
 
 ### 3. Define Tool Schema
 
-Create a new file `tools.py` in the `src/openai_responses_server` directory:
+Create a new file `tools.py` in the `src/open_responses_server` directory:
 
 ```python
 #!/usr/bin/env python3
@@ -398,9 +398,9 @@ EMBEDDING_MODEL=sentence-transformers/all-MiniLM-L6-v2
 Ensure your project has the following directory structure:
 
 ```
-openai-responses-server/
+open-responses-server/
 ├── src/
-│   └── openai_responses_server/
+│   └── open_responses_server/
 │       ├── __init__.py
 │       ├── cli.py
 │       ├── server.py

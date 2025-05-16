@@ -688,6 +688,15 @@ async def process_chat_completions_stream(response):
                                 yield f"data: {json.dumps(text_event.dict())}\n\n"
                                 # After tool execution, complete the response
                                 response_obj.status = "completed"
+                                # From text ("meta=None content=[TextContent(type='text', text="[{'name': 'listings'}]", annotations=None)] isError=False") 
+                                # sanitize out meta=None content=[TextContent(type='text', text=", and ", annotations=None)] isError=False") 
+                                inner_text = text.replace("meta=None content=[TextContent(type='text', text=", "").replace(", annotations=None)] isError=False", "")
+                                response_obj.output.append({
+                                    "id": message_id,
+                                    "type": "message",
+                                    "role": "assistant",
+                                    "content": [{"type": "output_text", "text": inner_text or "(No update)"}]
+                                })
                                 completed_event = ResponseCompleted(
                                     type="response.completed",
                                     response=response_obj

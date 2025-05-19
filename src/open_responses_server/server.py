@@ -83,6 +83,10 @@ mcp_servers: List["MCPServer"] = []
 mcp_functions_cache: List[Dict[str, Any]] = []
 # Refresh interval for updating MCP tools (in seconds)
 MCP_TOOL_REFRESH_INTERVAL = int(os.environ.get("MCP_TOOL_REFRESH_INTERVAL", "10"))
+# Global dictionary to store conversation history by response ID
+conversation_history: Dict[str, List[Dict[str, Any]]] = {}
+# Maximum number of conversations to keep in memory
+MAX_CONVERSATION_HISTORY = int(os.environ.get("MAX_CONVERSATION_HISTORY", "100"))
 
 async def _refresh_mcp_functions() -> None:
     """Fetch tools from all MCP servers and update the cache."""
@@ -354,9 +358,27 @@ def convert_responses_to_chat_completions(request_data: dict) -> dict:
     # Convert input to messages
     messages = []
     
+    # Check for previous_response_id and load conversation history if available
+    previous_response_id = request_data.get("previous_response_id")
+    if previous_response_id and previous_response_id in conversation_history:
+        logger.info(f"Loading conversation history from previous_response_id: {previous_response_id}")
+        messages = conversation_history[previous_response_id].copy()
+        logger.info(f"Loaded {len(messages)} messages from conversation history")
+    
     # Check for system message first if we have instructions
     if "instructions" in request_data:
-        messages.append({"role": "system", "content": request_data["instructions"]})
+        # If we're loading from history, check if we already have a system message
+        has_system_message = any(msg.get("role") == "system" for msg in messages)
+        if not has_system_message:
+            messages.append({"role": "system", "content": request_data["instructions"]})
+            logger.info(f"Added system message from instructions")
+        else:
+            # Replace existing system message with the new instructions
+            for msg in messages:
+                if msg.get("role") == "system":
+                    msg["content"] = request_data["instructions"]
+                    logger.info(f"Updated existing system message with new instructions")
+                    break
     
     # Check for previous tool responses in the input
     if "input" in request_data and request_data["input"]:
@@ -370,7 +392,11 @@ def convert_responses_to_chat_completions(request_data: dict) -> dict:
                     if "content" in item:
                         for j, content_item in enumerate(item["content"]):
                             if isinstance(content_item, dict) and content_item.get("type") == "input_text":
-                                content = content_item.get("text", "")
+                                content += content_item.get("text", "")
+                            elif isinstance(content_item, dict) and content_item.get("type") == "text":
+                                content += content_item.get("text", "")
+                            elif isinstance(content_item, str):
+                                content += content_item
                     user_message = {"role": "user", "content": content}
                     messages.append(user_message)
                     # Log user message content for context
@@ -401,10 +427,44 @@ def convert_responses_to_chat_completions(request_data: dict) -> dict:
                         }
                         messages.append(tool_message)
                     else:
-                        # If no matching tool call, skip it entirely - the calling app will handle this
-                        # Without a matching tool call, adding a tool response would cause API errors
-                        logger.info(f"No matching tool call found for {call_id}, skipping this tool response")
-                        # We don't add this to the messages at all, as it would cause parsing errors
+                        # If no matching tool call, we need to add an assistant message with the tool call first
+                        # as this could be from a previous conversation
+                        tool_name = item.get("name", "unknown_tool")
+                        
+                        # Create an assistant message with a tool call
+                        assistant_message = {
+                            "role": "assistant",
+                            "content": None,
+                            "tool_calls": [{
+                                "id": call_id,
+                                "type": "function",
+                                "function": {
+                                    "name": tool_name,
+                                    "arguments": item.get("arguments", "{}")
+                                }
+                            }]
+                        }
+                        messages.append(assistant_message)
+                        
+                        # Then add the tool response
+                        tool_message = {
+                            "role": "tool",
+                            "tool_call_id": call_id,
+                            "content": item.get("output", "")
+                        }
+                        messages.append(tool_message)
+                        logger.info(f"Added assistant message with tool call and corresponding tool response for {tool_name}")
+                elif item.get("type") == "message" and item.get("role") == "assistant":
+                    # Handle assistant messages from previous conversations
+                    content = ""
+                    if "content" in item and isinstance(item["content"], list):
+                        for content_item in item["content"]:
+                            if isinstance(content_item, dict) and content_item.get("type") == "output_text":
+                                content += content_item.get("text", "")
+                    
+                    if content:
+                        messages.append({"role": "assistant", "content": content})
+                        logger.info(f"Added assistant message: {content[:100]}...")
             elif isinstance(item, str):
                 # Simple string input
                 messages.append({"role": "user", "content": item})
@@ -462,10 +522,14 @@ def convert_responses_to_chat_completions(request_data: dict) -> dict:
     logger.info(f"Converted to chat completions: {len(messages)} messages, {len(chat_request.get('tools', []))} tools")
     return chat_request
 
-async def process_chat_completions_stream(response):
+async def process_chat_completions_stream(response, chat_request=None):
     """
     Process the streaming response from chat.completions API.
     Tracks the state of tool calls to properly convert them to Responses API events.
+    
+    Args:
+        response: The streaming response from chat.completions API
+        chat_request: (Optional) The chat request that was sent to the API for history storage
     """
     logger = logging.getLogger("api_adapter_stream")
     tool_calls = {}  # Store tool calls being built
@@ -527,6 +591,31 @@ async def process_chat_completions_stream(response):
                         type="response.completed",
                         response=response_obj
                     )
+                    
+                    # Save conversation history for DONE events if we have chat_request
+                    if chat_request and output_text_content:
+                        # Get the existing messages from the request
+                        messages = chat_request.get("messages", [])
+                        
+                        # Add the assistant response to the conversation history
+                        messages.append({
+                            "role": "assistant",
+                            "content": output_text_content
+                        })
+                        
+                        # Store in conversation history
+                        conversation_history[response_id] = messages
+                        logger.info(f"Saved conversation history for response_id {response_id} with {len(messages)} messages")
+                        
+                        # Trim conversation history if it grows too large
+                        if len(conversation_history) > MAX_CONVERSATION_HISTORY:
+                            # Remove oldest conversations
+                            excess = len(conversation_history) - MAX_CONVERSATION_HISTORY
+                            oldest_keys = sorted(conversation_history.keys())[:excess]
+                            for key in oldest_keys:
+                                del conversation_history[key]
+                            logger.info(f"Trimmed {excess} oldest conversations from history")
+                    
                     logger.info(f"Emitting completed event after [DONE]: {completed_event}")
                     yield f"data: {json.dumps(completed_event.dict())}\n\n"
                 continue
@@ -753,6 +842,50 @@ async def process_chat_completions_stream(response):
                                     type="response.completed",
                                     response=response_obj
                                 )
+                                
+                                # Save conversation history if we have chat_request available
+                                if chat_request:
+                                    # Get the existing messages from the request
+                                    messages = chat_request.get("messages", [])
+                                    
+                                    # Add the assistant response with tool calls
+                                    assistant_message = {
+                                        "role": "assistant",
+                                        "content": None,  # Content is null for tool calls
+                                        "tool_calls": [{
+                                            "id": tool_call["id"],
+                                            "type": "function",
+                                            "function": {
+                                                "name": tool_call["function"]["name"],
+                                                "arguments": tool_call["function"]["arguments"]
+                                            }
+                                        }]
+                                    }
+                                    messages.append(assistant_message)
+                                    
+                                    # Add the tool response for immediate tools
+                                    if is_mcp:
+                                        # For MCP tools, also add the tool response
+                                        tool_message = {
+                                            "role": "tool",
+                                            "tool_call_id": tool_call["id"],
+                                            "content": json.dumps(result)
+                                        }
+                                        messages.append(tool_message)
+                                    
+                                    # Store in conversation history
+                                    conversation_history[response_id] = messages
+                                    logger.info(f"Saved conversation history for response_id {response_id} with {len(messages)} messages")
+                                    
+                                    # Trim conversation history if it grows too large
+                                    if len(conversation_history) > MAX_CONVERSATION_HISTORY:
+                                        # Remove oldest conversations
+                                        excess = len(conversation_history) - MAX_CONVERSATION_HISTORY
+                                        oldest_keys = sorted(conversation_history.keys())[:excess]
+                                        for key in oldest_keys:
+                                            del conversation_history[key]
+                                        logger.info(f"Trimmed {excess} oldest conversations from history")
+                                
                                 logger.info(f"Emitting completed event after function_call: {completed_event}")
                                 yield f"data: {json.dumps(completed_event.dict())}\n\n"
                                 return  # End streaming after function result
@@ -834,6 +967,31 @@ async def process_chat_completions_stream(response):
                                 type="response.completed",
                                 response=response_obj
                             )
+                            
+                            # Save conversation history if we have chat_request available
+                            if chat_request:
+                                # Get the existing messages from the request
+                                messages = chat_request.get("messages", [])
+                                
+                                # Add the assistant response to the conversation history
+                                messages.append({
+                                    "role": "assistant",
+                                    "content": output_text_content or "(No update)"
+                                })
+                                
+                                # Store in conversation history
+                                conversation_history[response_id] = messages
+                                logger.info(f"Saved conversation history for response_id {response_id} with {len(messages)} messages")
+                                
+                                # Trim conversation history if it grows too large
+                                if len(conversation_history) > MAX_CONVERSATION_HISTORY:
+                                    # Remove oldest conversations
+                                    excess = len(conversation_history) - MAX_CONVERSATION_HISTORY
+                                    oldest_keys = sorted(conversation_history.keys())[:excess]
+                                    for key in oldest_keys:
+                                        del conversation_history[key]
+                                    logger.info(f"Trimmed {excess} oldest conversations from history")
+                            
                             logger.info(f"Emitting completed event after stop: {completed_event}")
                             yield f"data: {json.dumps(completed_event.dict())}\n\n"
                 
@@ -1065,7 +1223,7 @@ async def create_response(request: Request):
                             yield f"data: {json.dumps({'type': 'error', 'error': {'message': f'Error from LLM API: {response.status_code}'}})}\n\n"
                             return
                         
-                        async for event in process_chat_completions_stream(response):
+                        async for event in process_chat_completions_stream(response, chat_request):
                             yield event
                 except Exception as e:
                     logger.error(f"Error in stream_response: {str(e)}")

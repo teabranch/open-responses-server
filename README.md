@@ -163,6 +163,11 @@ Let’s build something powerful—together.
 
 TeaBranch. (2025). open-responses-server: Open-source server the serves any AI provider with OpenAI ChatCompletions as OpenAI's Responses API and hosted tools. [Computer software]. GitHub. https://github.com/teabranch/open-responses-server
 
+# Links:
+- python library: https://pypi.org/project/open-responses-server/
+- GitHub repository: https://github.com/teabranch/open-responses-server
+- GitHub Pages: https://teabranch.github.io/open-responses-server/
+
 # Naming history
 This repo had changed names:
 - openai-responses-server (Changed to avoid brand name OpenAI)

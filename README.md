@@ -167,4 +167,4 @@ TeaBranch. (2025). open-responses-server: Open-source server the serves any AI p
 This repo had changed names:
 - openai-responses-server (Changed to avoid brand name OpenAI)
 - open-responses-server (Is changing to avoid overshadow by open-responses agents api library)
-- responses-proxy (upcoming name)
+- knac-responses-server (upcoming name)

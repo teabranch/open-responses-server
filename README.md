@@ -134,6 +134,7 @@ Let’s build something powerful—together.
 [![Star History Chart](https://api.star-history.com/svg?repos=TeaBranch/open-responses-server&type=Date)](https://www.star-history.com/#TeaBranch/open-responses-server&Date)
 
 # Projects using this middleware
+- [Agentic Developer MCP Server](https://github.com/teabranch/agentic-developer-mcp) - a wrapper around Codex, transforming Codex into an agentic developer node over a folder. Together with this (ORS) repo, it becomes a link in a tree/chain of developers. 
 - [Nvidia jetson devices](https://github.com/OriNachum/autonomous-intelligence/tree/main/local-codex) - docker compose with ollama
 
 ⸻

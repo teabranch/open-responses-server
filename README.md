@@ -142,8 +142,8 @@ Let’s build something powerful—together.
 # 📚 Citations & inspirations
 
 ## Referenced projects
-- Crawl4AI – LLM-friendly web crawler
-- UncleCode. (2024). Crawl4AI: Open-source LLM Friendly Web Crawler & Scraper [Computer software]. GitHub. https://github.com/unclecode/crawl4ai
+- [SearXNG MCP](https://github.com/ihor-sokoliuk/mcp-searxng)
+- UncleCode. (2024). Crawl4AI: Open-source LLM Friendly Web Crawler & Scraper [Computer software]. GitHub. [Crawl4AI](repo https://github.com/unclecode/crawl4ai)
 
 ## Cite this project
 
@@ -165,9 +165,9 @@ Let’s build something powerful—together.
 TeaBranch. (2025). open-responses-server: Open-source server the serves any AI provider with OpenAI ChatCompletions as OpenAI's Responses API and hosted tools. [Computer software]. GitHub. https://github.com/teabranch/open-responses-server
 
 # Links:
-- python library: https://pypi.org/project/open-responses-server/
-- GitHub repository: https://github.com/teabranch/open-responses-server
-- GitHub Pages: https://teabranch.github.io/open-responses-server/
+- [Python library](https://pypi.org/project/open-responses-server)
+- [GitHub repository](https://github.com/teabranch/open-responses-server)
+- [GitHub Pages](https://teabranch.github.io/open-responses-server)
 
 # Naming history
 This repo had changed names:

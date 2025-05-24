@@ -143,7 +143,7 @@ Let’s build something powerful—together.
 
 ## Referenced projects
 - [SearXNG MCP](https://github.com/ihor-sokoliuk/mcp-searxng)
-- UncleCode. (2024). Crawl4AI: Open-source LLM Friendly Web Crawler & Scraper [Computer software]. GitHub. [Crawl4AI](repo https://github.com/unclecode/crawl4ai)
+- UncleCode. (2024). Crawl4AI: Open-source LLM Friendly Web Crawler & Scraper [Computer software]. GitHub. [Crawl4AI repo](https://github.com/unclecode/crawl4ai)
 
 ## Cite this project
 

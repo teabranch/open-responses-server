@@ -134,6 +134,7 @@ Let’s build something powerful—together.
 [![Star History Chart](https://api.star-history.com/svg?repos=TeaBranch/open-responses-server&type=Date)](https://www.star-history.com/#TeaBranch/open-responses-server&Date)
 
 # Projects using this middleware
+- [Agentic Developer MCP Server](https://github.com/teabranch/agentic-developer-mcp) - a wrapper around Codex, transforming Codex into an agentic developer node over a folder. Together with this (ORS) repo, it becomes a link in a tree/chain of developers. 
 - [Nvidia jetson devices](https://github.com/OriNachum/autonomous-intelligence/tree/main/local-codex) - docker compose with ollama
 
 ⸻
@@ -141,8 +142,8 @@ Let’s build something powerful—together.
 # 📚 Citations & inspirations
 
 ## Referenced projects
-- Crawl4AI – LLM-friendly web crawler
-- UncleCode. (2024). Crawl4AI: Open-source LLM Friendly Web Crawler & Scraper [Computer software]. GitHub. https://github.com/unclecode/crawl4ai
+- [SearXNG MCP](https://github.com/ihor-sokoliuk/mcp-searxng)
+- UncleCode. (2024). Crawl4AI: Open-source LLM Friendly Web Crawler & Scraper [Computer software]. GitHub. [Crawl4AI repo](https://github.com/unclecode/crawl4ai)
 
 ## Cite this project
 
@@ -162,3 +163,14 @@ Let’s build something powerful—together.
 ### Text citation
 
 TeaBranch. (2025). open-responses-server: Open-source server the serves any AI provider with OpenAI ChatCompletions as OpenAI's Responses API and hosted tools. [Computer software]. GitHub. https://github.com/teabranch/open-responses-server
+
+# Links:
+- [Python library](https://pypi.org/project/open-responses-server)
+- [GitHub repository](https://github.com/teabranch/open-responses-server)
+- [GitHub Pages](https://teabranch.github.io/open-responses-server)
+
+# Naming history
+This repo had changed names:
+- openai-responses-server (Changed to avoid brand name OpenAI)
+- open-responses-server 
+

@@ -11,7 +11,7 @@ from typing import Dict, List, Any
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
-from .config import MCP_TOOL_REFRESH_INTERVAL, logger
+from .config import MCP_TOOL_REFRESH_INTERVAL, MCP_SERVERS_CONFIG_PATH, logger
 
 class MCPServer:
     """Wrapper for an MCP server session and tool execution."""
@@ -80,7 +80,7 @@ class MCPManager:
 
     async def startup_mcp_servers(self):
         """Initialize all MCP servers defined in servers_config.json on startup."""
-        config_path = Path(__file__).parent.parent / "servers_config.json"
+        config_path = Path(MCP_SERVERS_CONFIG_PATH)
         try:
             with open(config_path) as f:
                 cfg = json.load(f)

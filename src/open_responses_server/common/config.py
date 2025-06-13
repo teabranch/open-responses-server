@@ -16,6 +16,7 @@ API_ADAPTER_PORT = int(os.environ.get("API_ADAPTER_PORT", "8080"))
 
 # MCP Configuration
 MCP_TOOL_REFRESH_INTERVAL = int(os.environ.get("MCP_TOOL_REFRESH_INTERVAL", "10"))
+MCP_SERVERS_CONFIG_PATH = os.environ.get("MCP_SERVERS_CONFIG_PATH", "src/open_responses_server/servers_config.json")
 
 # Conversation History Configuration
 MAX_CONVERSATION_HISTORY = int(os.environ.get("MAX_CONVERSATION_HISTORY", "100"))
@@ -50,4 +51,5 @@ logger.info(f"  OPENAI_BASE_URL: {OPENAI_BASE_URL}")
 logger.info(f"  API_ADAPTER_HOST: {API_ADAPTER_HOST}")
 logger.info(f"  API_ADAPTER_PORT: {API_ADAPTER_PORT}")
 logger.info(f"  MCP_TOOL_REFRESH_INTERVAL: {MCP_TOOL_REFRESH_INTERVAL}")
+logger.info(f"  MCP_SERVERS_CONFIG_PATH: {MCP_SERVERS_CONFIG_PATH}")
 logger.info(f"  MAX_CONVERSATION_HISTORY: {MAX_CONVERSATION_HISTORY}") 

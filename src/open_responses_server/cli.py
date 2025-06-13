@@ -33,13 +33,13 @@ def start_server(host=DEFAULT_HOST, port=DEFAULT_PORT):
         
         logger.info(f"Starting server on {host}:{port}...")
         # Run the server using uvicorn directly
-        uvicorn.run("open_responses_server.server:app", host=host, port=int(port))
+        uvicorn.run("open_responses_server.serve_entrypoint:app", host=host, port=int(port))
     except ImportError as e:
         logger.error(f"Error importing server module: {e}")
         logger.info("Trying to start server using subprocess...")
         try:
             subprocess.run(
-                ["uvicorn", "open_responses_server.server:app", "--host", host, "--port", str(port)],
+                ["uvicorn", "open_responses_server.server_entrypoint:app", "--host", host, "--port", str(port)],
                 check=True
             )
         except subprocess.CalledProcessError as e:

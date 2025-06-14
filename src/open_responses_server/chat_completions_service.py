@@ -1,6 +1,6 @@
 import json
 from fastapi import Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, Response
 from open_responses_server.common.llm_client import LLMClient
 from open_responses_server.common.config import logger, OPENAI_BASE_URL_INTERNAL, OPENAI_API_KEY, logger
 from open_responses_server.common.mcp_manager import mcp_manager
@@ -63,7 +63,7 @@ async def handle_chat_completions(request: Request):
             )
             logger.info("response:")
             logger.info(response.text)
-            return response
+            return Response(content=response.content, status_code=response.status_code, headers=response.headers)
         except Exception as e:
             logger.error(f"Error during chat completions non-stream proxy: {e}")
             return {"error": str(e)}, 500 

@@ -14,7 +14,7 @@ class LLMClient:
         Initializes it if it doesn't exist.
         """
         if cls._client is None:
-            logger.info("Initializing LLM client...")
+            logger.info(f"Initializing LLM client... ({OPENAI_BASE_URL_INTERNAL})")
             cls._client = httpx.AsyncClient(
                 base_url=OPENAI_BASE_URL_INTERNAL,
                 headers={"Authorization": f"Bearer {OPENAI_API_KEY}"},

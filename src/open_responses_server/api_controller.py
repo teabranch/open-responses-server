@@ -97,7 +97,17 @@ async def chat_completions(request: Request):
     """
     Endpoint for /v1/chat/completions, delegating to the service.
     """
-    return await handle_chat_completions(request)
+    logger.info("Handling chat completions")
+    response = await handle_chat_completions(request)
+    logger.info("Chat completions handled")
+    if isinstance(response, StreamingResponse):
+        return response
+    elif isinstance(response, Response):
+        return response
+#    else:
+        # If the response is not a StreamingResponse or Response, raise an error
+#        raise HTTPException(status_code=500, detail="Unexpected response type from chat completions service.")
+    return response
 
 
 @app.get("/health")

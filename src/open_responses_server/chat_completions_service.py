@@ -2,7 +2,7 @@ import json
 from fastapi import Request
 from fastapi.responses import StreamingResponse
 from open_responses_server.common.llm_client import LLMClient
-from open_responses_server.common.config import logger, OPENAI_BASE_URL_INTERNAL, OPENAI_API_KEY
+from open_responses_server.common.config import logger, OPENAI_BASE_URL_INTERNAL, OPENAI_API_KEY, logger
 from open_responses_server.common.mcp_manager import mcp_manager
 
 async def handle_chat_completions(request: Request):
@@ -24,6 +24,8 @@ async def handle_chat_completions(request: Request):
                 existing_tools.append({"type": "function", "function": tool})
         
         request_data["tools"] = existing_tools
+    
+    logger.info(request_data["tools"])
 
     # Determine if the request is streaming
     is_stream = request_data.get("stream", False)
@@ -51,11 +53,16 @@ async def handle_chat_completions(request: Request):
     else:
         # Handle non-streaming request
         try:
+            logger.info("making request:")
+            logger.info(request_data)
+            # debug client
             response = await client.post(
                 "/v1/chat/completions",
                 json=request_data,
                 timeout=120.0
             )
+            logger.info("response:")
+            logger.info(response.text)
             return response
         except Exception as e:
             logger.error(f"Error during chat completions non-stream proxy: {e}")

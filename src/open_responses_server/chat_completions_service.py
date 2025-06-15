@@ -40,7 +40,7 @@ async def _handle_non_streaming_request(client: LLMClient, request_data: dict) -
                         try:
                             arguments = json.loads(function_call.get("arguments", "{}"))
                             result = await mcp_manager.execute_mcp_tool(tool_name, arguments)
-                            tool_content = json.dumps(result)
+                            tool_content = json.dumps(result.result)
                         except Exception as e:
                             logger.error(f"Error executing tool {tool_name}: {e}")
                             tool_content = json.dumps({"error": f"Error executing tool: {e}"})
@@ -97,7 +97,7 @@ async def _handle_streaming_request(client: LLMClient, request_data: dict) -> St
                         try:
                             arguments = json.loads(function_call.get("arguments", "{}"))
                             result = await mcp_manager.execute_mcp_tool(tool_name, arguments)
-                            tool_content = json.dumps(result)
+                            tool_content = json.dumps(result.result)
                         except Exception as e:
                             logger.error(f"Error executing tool {tool_name}: {e}")
                             tool_content = json.dumps({"error": f"Error executing tool: {e}"})

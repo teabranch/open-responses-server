@@ -6,7 +6,8 @@ import pytest
 import asyncio
 from unittest.mock import patch, MagicMock
 from fastapi.testclient import TestClient
-from open_responses_server.server import app, convert_responses_to_chat_completions
+from open_responses_server.api_controller import app
+from open_responses_server.responses_service import convert_responses_to_chat_completions
 
 class TestServer:
     """Tests for the server module"""
@@ -26,7 +27,7 @@ class TestServer:
         """Test the root endpoint"""
         response = client.get("/")
         assert response.status_code == 200
-        assert response.json() == {"message": "API Adapter is running. Use /responses endpoint to interact with the API."}
+        assert response.json() == {"message": "Open Responses Server is running."}
     
     def test_convert_responses_to_chat_completions(self):
         """Test the conversion from Responses API to chat.completions API"""
@@ -138,7 +139,7 @@ class TestServer:
     async def test_proxy_endpoint(self, client, mock_httpx_client):
         """Test the proxy endpoint functionality"""
         # Patch the AsyncClient to avoid real HTTP requests
-        with patch('open_responses_server.server.httpx.AsyncClient', return_value=mock_httpx_client):
+        with patch('open_responses_server.api_controller.httpx.AsyncClient', return_value=mock_httpx_client):
             # Test GET request
             response = client.get("/v1/models")
             assert response.status_code == 200

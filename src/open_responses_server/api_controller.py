@@ -46,7 +46,37 @@ async def create_response(request: Request):
     try:
         request_data = await request.json()
         
-        # Inject MCP tools correctly
+        # Log basic request information
+        logger.info(f"Received request: model={request_data.get('model')}, stream={request_data.get('stream')}")
+        
+        # Log input content for better visibility
+        if "input" in request_data and request_data["input"]:
+            logger.info("==== REQUEST CONTENT ====")
+            for i, item in enumerate(request_data["input"]):
+                if isinstance(item, dict):
+                    if item.get("type") == "message" and item.get("role") == "user":
+                        if "content" in item and isinstance(item["content"], list):
+                            for index, content_item in enumerate(item["content"]):
+                                if isinstance(content_item, dict):
+                                    # Handle nested content structure like {"type": "input_text", "text": "actual message"}
+                                    if content_item.get("type") == "input_text" and "text" in content_item:
+                                        user_text = content_item.get("text", "")
+                                        logger.info(f"USER INPUT: {user_text}")
+                                    elif content_item.get("type") == "text" and "text" in content_item:
+                                        user_text = content_item.get("text", "")
+                                        logger.info(f"USER INPUT: {user_text}")
+                                    # Handle other content types
+                                    elif "type" in content_item:
+                                        logger.info(f"USER INPUT ({content_item.get('type')}): {str(content_item)[:100]}...")
+                                elif isinstance(content_item, str):
+                                    logger.info(f"USER INPUT: {content_item}")
+                    elif item.get("type") == "function_call_output":
+                        logger.info(f"FUNCTION RESULT: call_id={item.get('call_id')}, output={str(item.get('output', ''))[:100]}...")
+                elif isinstance(item, str):
+                    logger.info(f"USER INPUT: {item}")
+            logger.info("=======================")
+
+        # Inject MCP tools into the request before conversion
         mcp_tools = mcp_manager.get_mcp_tools()
         if mcp_tools:
             # Start with user-provided tools, or an empty list
@@ -54,17 +84,18 @@ async def create_response(request: Request):
             
             # Get the names of the tools already in the list
             final_tool_names = {
-                tool.get("function", {}).get("name") 
+                tool.get("function", {}).get("name") if tool.get("function") else tool.get("name")
                 for tool in final_tools
-                if tool.get("function") and tool.get("function").get("name")
+                if (tool.get("function") and tool.get("function").get("name")) or tool.get("name")
             }
             
-            # Add only the new MCP tools
+            # Add only the new MCP tools that don't conflict
             for tool in mcp_tools:
                 if tool.get("name") not in final_tool_names:
                     final_tools.append({"type": "function", "function": tool})
             
             request_data["tools"] = final_tools
+            logger.info(f"Injected {len(mcp_tools)} MCP tools into request")
 
         chat_request = convert_responses_to_chat_completions(request_data)
         
@@ -104,9 +135,6 @@ async def chat_completions(request: Request):
         return response
     elif isinstance(response, Response):
         return response
-#    else:
-        # If the response is not a StreamingResponse or Response, raise an error
-#        raise HTTPException(status_code=500, detail="Unexpected response type from chat completions service.")
     return response
 
 

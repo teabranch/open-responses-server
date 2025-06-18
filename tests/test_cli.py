@@ -23,7 +23,7 @@ class TestCLI:
             with patch.dict('sys.modules', {'uvicorn': mock_uvicorn}):
                 # Mock the import of the app module
                 mock_app = MagicMock()
-                with patch.dict('sys.modules', {'open_responses_server.server': mock_app}):
+                with patch.dict('sys.modules', {'open_responses_server.server_entrypoint': mock_app}):
                     # Call start_server
                     start_server(host="127.0.0.1", port="9000")
                     
@@ -35,7 +35,7 @@ class TestCLI:
         """Test that start_server falls back to subprocess if imports fail"""
         # Force the ImportError condition by patching the specific imports in the CLI module
         with patch('open_responses_server.cli.os.makedirs'):
-            with patch.dict('sys.modules', {'uvicorn': None, 'open_responses_server.server': None}):
+            with patch.dict('sys.modules', {'uvicorn': None, 'open_responses_server.server_entrypoint': None}):
                 # This will cause the import statements to fail with ImportError
                 with patch('open_responses_server.cli.subprocess') as mock_subprocess:
                     # Call start_server
@@ -43,7 +43,7 @@ class TestCLI:
                     
                     # Verify subprocess.run was called correctly
                     mock_subprocess.run.assert_called_once_with(
-                        ["uvicorn", "open_responses_server.server:app", "--host", "127.0.0.1", "--port", "9000"],
+                        ["uvicorn", "open_responses_server.server_entrypoint:app", "--host", "127.0.0.1", "--port", "9000"],
                         check=True
                     )
     

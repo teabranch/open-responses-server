@@ -51,7 +51,7 @@ ENV PYTHONUNBUFFERED=1 \
     LOG_FILE_PATH=${LOG_FILE_PATH}
 
 # Create entrypoint script for proper environment variable handling
-RUN echo '#!/bin/sh\nexec uvicorn open_responses_server.server:app --host $API_ADAPTER_HOST --port $API_ADAPTER_PORT "$@"' > /app/entrypoint.sh && \
+RUN echo '#!/bin/sh\nexec uvicorn open_responses_server.server_entrypoint:app --host $API_ADAPTER_HOST --port $API_ADAPTER_PORT "$@"' > /app/entrypoint.sh && \
     chmod +x /app/entrypoint.sh
 
 # Create non-root user for security and set permissions

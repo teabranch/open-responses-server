@@ -1,6 +1,6 @@
 import json
 from fastapi import Request
-from fastapi.responses import StreamingResponse, Response
+from fastapi.responses import StreamingResponse, Response, JSONResponse
 from open_responses_server.common.llm_client import LLMClient
 from open_responses_server.common.config import logger, OPENAI_BASE_URL_INTERNAL, OPENAI_API_KEY, MAX_TOOL_CALL_ITERATIONS
 from open_responses_server.common.mcp_manager import mcp_manager
@@ -13,7 +13,7 @@ def serialize_tool_result(result):
         tool_content = json.dumps(result)
     return tool_content
 
-async def _handle_non_streaming_request(client: LLMClient, request_data: dict) -> Response:
+async def _handle_non_streaming_request(client: LLMClient, request_data: dict):
     """Handles a non-streaming chat completions request with potential tool calls."""
     messages = list(request_data.get("messages", []))
     current_request_data = request_data.copy()
@@ -64,16 +64,17 @@ async def _handle_non_streaming_request(client: LLMClient, request_data: dict) -
                 messages.extend(tool_results_messages)
                 continue
             else:
-                final_headers = dict(response.headers)
-                final_headers.pop('Content-Encoding', None)
-                final_headers.pop('Transfer-Encoding', None)
-                return Response(content=response.content, status_code=response.status_code, headers=final_headers)
+                # Log the response for debugging
+                logger.info(f"Final response data: {response_data}")
+                
+                # Return the response data directly - let FastAPI handle JSON serialization
+                return response_data
 
         except Exception as e:
             logger.error(f"Error during non-streaming chat completion: {e}")
-            return Response(content=json.dumps({"error": str(e)}), status_code=500, media_type="application/json")
+            return {"error": str(e)}
     
-    return Response(content=json.dumps({"error": "Max tool call iterations reached"}), status_code=500, media_type="application/json")
+    return {"error": "Max tool call iterations reached"}
 
 
 async def _handle_streaming_request(client: LLMClient, request_data: dict) -> StreamingResponse:

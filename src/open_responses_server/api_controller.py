@@ -233,7 +233,8 @@ async def create_response(request: Request):
                             logger.info("No tools or functions available, sending without them")
                     # Log the initial Chat Completions request payload
                     logger.info(f"Sending Chat Completions request: {json.dumps(chat_request)}")
-                    async with LLMClient.get_client().stream(
+                    client = await LLMClient.get_client()
+                    async with client.stream(
                         "POST",
                         "/v1/chat/completions",
                         json=chat_request,

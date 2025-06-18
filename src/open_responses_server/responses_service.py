@@ -162,14 +162,18 @@ def convert_responses_to_chat_completions(request_data: dict) -> dict:
     if "tools" in request_data and request_data["tools"]:
         chat_request["tools"] = []
         
+        logger.info(f"[TOOL-CONVERSION] Processing {len(request_data['tools'])} tools from request_data")
+        
         for i, tool in enumerate(request_data["tools"]):
             try:
-                logger.info(f"Trying to convert tool {i}: {tool}")
+                logger.debug(f"[TOOL-CONVERSION] Processing tool {i}: {tool}")
                 if not isinstance(tool, dict) or "type" not in tool or tool.get("type") != "function":
+                    logger.warning(f"[TOOL-CONVERSION] Skipping tool {i}: not a function type or invalid format")
                     continue
                     
                 function_obj = tool
                 if not isinstance(function_obj, dict) or "name" not in function_obj:
+                    logger.warning(f"[TOOL-CONVERSION] Skipping tool {i}: missing name or invalid function object")
                     continue
                 
                 function_data = {
@@ -177,7 +181,7 @@ def convert_responses_to_chat_completions(request_data: dict) -> dict:
                 }
                 
                 # Log tool information
-                logger.info(f"Converting Tool {i}: {function_data['name']}")
+                logger.info(f"[TOOL-CONVERSION] Converting Tool {i}: {function_data['name']}")
                 
                 if "description" in function_obj:
                     function_data["description"] = function_obj["description"]
@@ -189,8 +193,17 @@ def convert_responses_to_chat_completions(request_data: dict) -> dict:
                     "type": "function",
                     "function": function_data
                 })
+                
+                # Check if this is an MCP tool
+                is_mcp = any(func.get("name") == function_data["name"] for func in mcp_manager.mcp_functions_cache)
+                logger.info(f"[TOOL-CONVERSION] Tool '{function_data['name']}': is_mcp={is_mcp}")
+                
             except Exception as e:
-                logger.error(f"Error processing tool {i}: {str(e)}")
+                logger.error(f"[TOOL-CONVERSION] Error processing tool {i}: {str(e)}")
+        
+        logger.info(f"[TOOL-CONVERSION] Successfully converted {len(chat_request['tools'])} tools to chat_request format")
+    else:
+        logger.info("[TOOL-CONVERSION] No tools found in request_data")
     
     # Handle tool_choice
     if "tool_choice" in request_data:
@@ -382,6 +395,8 @@ async def process_chat_completions_stream(response, chat_request=None):
                                         is_mcp = mcp_manager.is_mcp_tool(tool_call["function"]["name"])
                                         tool_status = "in_progress" if is_mcp else "ready"
                                         
+                                        logger.info(f"[TOOL-CALL-CREATED] Tool '{tool_call['function']['name']}': is_mcp={is_mcp}, status={tool_status}")
+                                        
                                         # Add the tool call to the response output in Responses API format
                                         response_obj.output.append({
                                             "arguments": tool_call["function"]["arguments"],
@@ -456,15 +471,19 @@ async def process_chat_completions_stream(response, chat_request=None):
                                 except Exception:
                                     args = {}
                                     
+                                logger.info(f"[TOOL-EXECUTE] Processing tool '{tool_name}' with args: {args}")
+                                
                                 # Check if this is an MCP tool or a non-MCP tool
                                 if mcp_manager.is_mcp_tool(tool_name):
-                                    logger.info(f"Executing MCP tool: {tool_name}")
+                                    logger.info(f"[TOOL-EXECUTE] Executing MCP tool: {tool_name}")
                                     # Execute MCP tool
                                     try:
                                         result = await mcp_manager.execute_mcp_tool(tool_name, args)
+                                        logger.info(f"[TOOL-EXECUTE] ✓ MCP tool '{tool_name}' executed successfully")
+                                        logger.debug(f"[TOOL-EXECUTE] MCP tool '{tool_name}' result: {result}")
                                     except Exception as e:
                                         result = {"error": str(e)}
-                                    logger.info(f"MCP tool result for {tool_name}: {result}")
+                                        logger.error(f"[TOOL-EXECUTE] ✗ MCP tool '{tool_name}' failed: {e}")
                                     
                                     # Append as function_call_output
                                     response_obj.output.append({
@@ -489,7 +508,7 @@ async def process_chat_completions_stream(response, chat_request=None):
                                     yield f"data: {json.dumps(text_event.dict())}\n\n"
                                 else:
                                     # For non-MCP tools, send the function call back to the client in Responses API format
-                                    logger.info(f"Forwarding non-MCP tool call to client: {tool_name}")
+                                    logger.info(f"[TOOL-EXECUTE] Forwarding non-MCP tool call to client: {tool_name}")
                                     
                                     # Include the function call in the response
                                     response_obj.output.append({
@@ -556,15 +575,19 @@ async def process_chat_completions_stream(response, chat_request=None):
                                 return  # End streaming after function result
                         # If the finish reason is "tool_calls", emit the arguments.done events
                         if choice["finish_reason"] == "tool_calls":
+                            logger.info(f"[TOOL-CALLS-FINISH] Processing {len(tool_calls)} tool calls")
                             for index, tool_call in tool_calls.items():
                                 # Log the complete tool call arguments
-                                logger.info(f"Tool call completed: {tool_call['function']['name']} with arguments: {tool_call['function']['arguments']}")
+                                logger.info(f"[TOOL-CALLS-FINISH] Tool call completed: {tool_call['function']['name']} with arguments: {tool_call['function']['arguments']}")
                                 
                                 # Check if this is an MCP tool or a user-defined tool
                                 is_mcp = mcp_manager.is_mcp_tool(tool_call["function"]["name"])
                                 
+                                logger.info(f"[TOOL-CALLS-FINISH] Tool '{tool_call['function']['name']}': is_mcp={is_mcp}")
+                                
                                 # For non-MCP tools, we leave them in the "ready" state for the client to handle
                                 if is_mcp:
+                                    logger.info(f"[TOOL-CALLS-FINISH] Emitting arguments.done for MCP tool '{tool_call['function']['name']}'")
                                     done_event = ToolCallArgumentsDone(
                                         type="response.function_call_arguments.done",
                                         id=tool_call["item_id"],
@@ -573,6 +596,8 @@ async def process_chat_completions_stream(response, chat_request=None):
                                     )
                                     logger.info(f"Emitting {done_event}")
                                     yield f"data: {json.dumps(done_event.dict())}\n\n"
+                                else:
+                                    logger.info(f"[TOOL-CALLS-FINISH] Keeping non-MCP tool '{tool_call['function']['name']}' in ready state for client")
                                 
                                 # Update response object based on tool type
                                 if not is_mcp:
@@ -583,6 +608,7 @@ async def process_chat_completions_stream(response, chat_request=None):
                                         if output_item.get("id") == tool_call["id"] and output_item.get("type") == "function_call":
                                             output_item["arguments"] = tool_call["function"]["arguments"]
                                             found = True
+                                            logger.info(f"[TOOL-CALLS-FINISH] Updated existing function_call entry for '{tool_call['function']['name']}'")
                                             break
                                     
                                     # If not found, add it
@@ -595,6 +621,7 @@ async def process_chat_completions_stream(response, chat_request=None):
                                             "call_id": tool_call["id"],
                                             "status": "ready"
                                         })
+                                        logger.info(f"[TOOL-CALLS-FINISH] Added new function_call entry for '{tool_call['function']['name']}'")
                                 else:
                                     # For MCP tools, add as tool_call
                                     response_obj.output.append({
@@ -605,6 +632,9 @@ async def process_chat_completions_stream(response, chat_request=None):
                                             "arguments": tool_call["function"]["arguments"]
                                         }
                                     })
+                                    logger.info(f"[TOOL-CALLS-FINISH] Added tool_call entry for MCP tool '{tool_call['function']['name']}'")
+                            
+                            logger.info(f"[TOOL-CALLS-FINISH] Completed processing all tool calls, final output has {len(response_obj.output)} items")
                         
                         # If the finish reason is "stop", emit the completed event
                         if choice["finish_reason"] == "stop":

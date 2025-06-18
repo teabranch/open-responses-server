@@ -102,9 +102,17 @@ async def create_response(request: Request):
             # Append filtered MCP tools to existing tools, keeping existing tools first (priority)
             request_data["tools"] = existing_tools + filtered_mcp_tools
             
-            logger.info(f"Appended {len(filtered_mcp_tools)} MCP tools to {len(existing_tools)} existing tools in request_data")
+            logger.info(f"[TOOL-INJECT] /responses: {len(existing_tools)} existing tools, {len(mcp_manager.mcp_functions_cache)} MCP tools available")
+            logger.info(f"[TOOL-INJECT] /responses: existing tool names: {list(existing_tool_names)}")
+            logger.info(f"[TOOL-INJECT] /responses: available MCP tools: {[t['name'] for t in mcp_tools]}")
+            logger.info(f"[TOOL-INJECT] /responses: filtered {len(filtered_mcp_tools)} MCP tools to inject: {[t['name'] for t in filtered_mcp_tools]}")
+            logger.info(f"[TOOL-INJECT] /responses: final tool count: {len(request_data['tools'])}")
+        else:
+            logger.info("[TOOL-INJECT] /responses: no MCP tools available in cache")
+        
         # Convert request to chat.completions format
         chat_request = convert_responses_to_chat_completions(request_data)
+        
         # Inject cached MCP tool definitions
         if mcp_manager.mcp_functions_cache:
             # Keep any existing functions and merge with MCP functions
@@ -132,21 +140,24 @@ async def create_response(request: Request):
                     existing_tool_names.add(func.get("name", ""))
             
             # Then add MCP functions that don't conflict with existing tools
+            mcp_tools_added = []
             for func in mcp_manager.mcp_functions_cache:
                 if func.get("name") not in existing_tool_names:
                     chat_request["tools"].append({
                         "type": "function",
                         "function": func
                     })
+                    mcp_tools_added.append(func.get("name"))
             
             # Remove the functions key as we've converted to tools format
             chat_request.pop("functions", None)
             
-            logger.info(f"Converted existing functions and MCP functions to tools format")
-        # else:
-        #     chat_request.pop("tools", None)
-        #     chat_request.pop("functions", None)
-        #     logger.info("No MCP functions cached, sending without functions")
+            logger.info(f"[TOOL-CONVERT] /responses: converted {len(existing_functions)} existing functions to tools format")
+            logger.info(f"[TOOL-CONVERT] /responses: added {len(mcp_tools_added)} MCP tools: {mcp_tools_added}")
+            logger.info(f"[TOOL-CONVERT] /responses: final chat_request tools count: {len(chat_request.get('tools', []))}")
+        else:
+            logger.info("[TOOL-CONVERT] /responses: no MCP functions cached, sending without MCP tools")
+        
         # Remove tool_choice when no functions/tools are provided
         if not chat_request.get("functions") and not chat_request.get("tools"):
             chat_request.pop("tool_choice", None)

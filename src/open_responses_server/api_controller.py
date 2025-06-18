@@ -403,7 +403,7 @@ async def proxy_endpoint(request: Request, path_name: str):
                 async with client.stream(request.method, url, headers=headers, content=body, timeout=120.0) as response:
                     async for chunk in response.aiter_bytes():
                         yield chunk
-            return StreamingResponse(stream_proxy(), media_type=response.headers.get("content-type"))
+            return StreamingResponse(stream_proxy(), media_type=request.headers.get('accept', 'application/json'))
         else:
             response = await client.request(request.method, url, headers=headers, content=body, timeout=120.0)
             return Response(content=response.content, status_code=response.status_code, headers=response.headers)

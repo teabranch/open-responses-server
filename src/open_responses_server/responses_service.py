@@ -585,9 +585,26 @@ async def process_chat_completions_stream(response, chat_request=None):
                                 
                                 logger.info(f"[TOOL-CALLS-FINISH] Tool '{tool_call['function']['name']}': is_mcp={is_mcp}")
                                 
-                                # For non-MCP tools, we leave them in the "ready" state for the client to handle
+                                # For MCP tools, execute them immediately
                                 if is_mcp:
-                                    logger.info(f"[TOOL-CALLS-FINISH] Emitting arguments.done for MCP tool '{tool_call['function']['name']}'")
+                                    logger.info(f"[TOOL-CALLS-FINISH] Executing MCP tool '{tool_call['function']['name']}'")
+                                    
+                                    # Parse the arguments JSON
+                                    try:
+                                        args = json.loads(tool_call["function"]["arguments"])
+                                    except Exception:
+                                        args = {}
+                                        
+                                    # Execute MCP tool
+                                    try:
+                                        result = await mcp_manager.execute_mcp_tool(tool_call["function"]["name"], args)
+                                        logger.info(f"[TOOL-CALLS-FINISH] ✓ MCP tool '{tool_call['function']['name']}' executed successfully")
+                                        logger.debug(f"[TOOL-CALLS-FINISH] MCP tool result: {result}")
+                                    except Exception as e:
+                                        result = {"error": str(e)}
+                                        logger.error(f"[TOOL-CALLS-FINISH] ✗ MCP tool '{tool_call['function']['name']}' failed: {e}")
+                                    
+                                    # Emit the arguments.done event
                                     done_event = ToolCallArgumentsDone(
                                         type="response.function_call_arguments.done",
                                         id=tool_call["item_id"],
@@ -596,12 +613,46 @@ async def process_chat_completions_stream(response, chat_request=None):
                                     )
                                     logger.info(f"Emitting {done_event}")
                                     yield f"data: {json.dumps(done_event.dict())}\n\n"
+                                    
+                                    # Add the tool execution result to the response
+                                    response_obj.output.append({
+                                        "id": tool_call["id"],
+                                        "type": "function_call_output",
+                                        "call_id": tool_call["id"],
+                                        "output": result
+                                    })
+                                    
+                                    # Convert result to JSON for text delta
+                                    try:
+                                        text = json.dumps(result)
+                                    except TypeError:
+                                        text = json.dumps(str(result))
+                                        
+                                    # Emit text delta with the result
+                                    text_event = OutputTextDelta(
+                                        type="response.output_text.delta",
+                                        item_id=tool_call["id"],
+                                        output_index=0,
+                                        delta=text
+                                    )
+                                    yield f"data: {json.dumps(text_event.dict())}\n\n"
+                                    
+                                    logger.info(f"[TOOL-CALLS-FINISH] Added function_call_output for MCP tool '{tool_call['function']['name']}'")
+                                    
                                 else:
+                                    # For non-MCP tools, emit arguments.done and leave them in ready state for client
                                     logger.info(f"[TOOL-CALLS-FINISH] Keeping non-MCP tool '{tool_call['function']['name']}' in ready state for client")
-                                
-                                # Update response object based on tool type
-                                if not is_mcp:
-                                    # For non-MCP tools, keep status "ready" for client handling
+                                    
+                                    done_event = ToolCallArgumentsDone(
+                                        type="response.function_call_arguments.done",
+                                        id=tool_call["item_id"],
+                                        output_index=tool_call["output_index"],
+                                        arguments=tool_call["function"]["arguments"]
+                                    )
+                                    logger.info(f"Emitting {done_event}")
+                                    yield f"data: {json.dumps(done_event.dict())}\n\n"
+                                    
+                                    # Update response object for non-MCP tools
                                     # Find any existing entry for this tool call and update args
                                     found = False
                                     for output_item in response_obj.output:
@@ -622,19 +673,66 @@ async def process_chat_completions_stream(response, chat_request=None):
                                             "status": "ready"
                                         })
                                         logger.info(f"[TOOL-CALLS-FINISH] Added new function_call entry for '{tool_call['function']['name']}'")
-                                else:
-                                    # For MCP tools, add as tool_call
-                                    response_obj.output.append({
-                                        "id": tool_call["item_id"],
-                                        "type": "tool_call",
+                            
+                            # After processing all tool calls, complete the response
+                            response_obj.status = "completed"
+                            completed_event = ResponseCompleted(
+                                type="response.completed",
+                                response=response_obj
+                            )
+                            
+                            # Save conversation history if we have chat_request available
+                            if chat_request:
+                                # Get the existing messages from the request
+                                messages = chat_request.get("messages", [])
+                                
+                                # Add the assistant response with tool calls
+                                assistant_message = {
+                                    "role": "assistant",
+                                    "content": None,  # Content is null for tool calls
+                                    "tool_calls": [{
+                                        "id": tool_call["id"],
+                                        "type": "function",
                                         "function": {
                                             "name": tool_call["function"]["name"],
                                             "arguments": tool_call["function"]["arguments"]
                                         }
-                                    })
-                                    logger.info(f"[TOOL-CALLS-FINISH] Added tool_call entry for MCP tool '{tool_call['function']['name']}'")
+                                    } for tool_call in tool_calls.values()]
+                                }
+                                messages.append(assistant_message)
+                                
+                                # Add tool responses for executed MCP tools
+                                for tool_call in tool_calls.values():
+                                    if mcp_manager.is_mcp_tool(tool_call["function"]["name"]):
+                                        # Find the result in the response output
+                                        for output_item in response_obj.output:
+                                            if (output_item.get("type") == "function_call_output" and 
+                                                output_item.get("call_id") == tool_call["id"]):
+                                                tool_message = {
+                                                    "role": "tool",
+                                                    "tool_call_id": tool_call["id"],
+                                                    "content": json.dumps(output_item.get("output", ""))
+                                                }
+                                                messages.append(tool_message)
+                                                break
+                                
+                                # Store in conversation history
+                                conversation_history[response_id] = messages
+                                logger.info(f"Saved conversation history for response_id {response_id} with {len(messages)} messages")
+                                
+                                # Trim conversation history if it grows too large
+                                if len(conversation_history) > MAX_CONVERSATION_HISTORY:
+                                    # Remove oldest conversations
+                                    excess = len(conversation_history) - MAX_CONVERSATION_HISTORY
+                                    oldest_keys = sorted(conversation_history.keys())[:excess]
+                                    for key in oldest_keys:
+                                        del conversation_history[key]
+                                    logger.info(f"Trimmed {excess} oldest conversations from history")
                             
                             logger.info(f"[TOOL-CALLS-FINISH] Completed processing all tool calls, final output has {len(response_obj.output)} items")
+                            logger.info(f"Emitting completed event after tool_calls: {completed_event}")
+                            yield f"data: {json.dumps(completed_event.dict())}\n\n"
+                            return  # End streaming after tool processing
                         
                         # If the finish reason is "stop", emit the completed event
                         if choice["finish_reason"] == "stop":

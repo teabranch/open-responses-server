@@ -3,15 +3,7 @@ from fastapi import Request
 from fastapi.responses import StreamingResponse, Response, JSONResponse
 from open_responses_server.common.llm_client import LLMClient
 from open_responses_server.common.config import logger, OPENAI_BASE_URL_INTERNAL, OPENAI_API_KEY, MAX_TOOL_CALL_ITERATIONS
-from open_responses_server.common.mcp_manager import mcp_manager
-
-def serialize_tool_result(result):
-    if hasattr(result, 'content') and isinstance(result.content, list):
-        content_list = [content.text for content in result.content if hasattr(content, 'text')]
-        tool_content = json.dumps(content_list)
-    else:
-        tool_content = json.dumps(result)
-    return tool_content
+from open_responses_server.common.mcp_manager import mcp_manager, serialize_tool_result
 
 async def _handle_non_streaming_request(client: LLMClient, request_data: dict):
     """Handles a non-streaming chat completions request with potential tool calls."""

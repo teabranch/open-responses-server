@@ -4,7 +4,7 @@ import time
 from typing import Dict, List, Any
 
 from open_responses_server.common.config import logger, MAX_CONVERSATION_HISTORY
-from open_responses_server.common.mcp_manager import mcp_manager
+from open_responses_server.common.mcp_manager import mcp_manager, serialize_tool_result
 from open_responses_server.models.responses_models import (
     ResponseModel, ResponseCreated, ResponseInProgress, ResponseCompleted,
     ToolCallsCreated, ToolCallArgumentsDelta, ToolCallArgumentsDone, OutputTextDelta
@@ -512,14 +512,14 @@ async def process_chat_completions_stream(response, chat_request=None):
                                         "id": tool_call["id"],
                                         "type": "function_call_output",
                                         "call_id": tool_call["id"],
-                                        "output": result
+                                        "output": serialize_tool_result(result)
                                     })
                                     
                                     # Convert result to JSON, with fallback to string if needed
                                     try:
-                                        text = json.dumps(result)
+                                        text = serialize_tool_result(result)
                                     except TypeError:
-                                        text = json.dumps(str(result))
+                                        text = serialize_tool_result(str(result))
                                         
                                     text_event = OutputTextDelta(
                                         type="response.output_text.delta",
@@ -575,7 +575,7 @@ async def process_chat_completions_stream(response, chat_request=None):
                                         tool_message = {
                                             "role": "tool",
                                             "tool_call_id": tool_call["id"],
-                                            "content": json.dumps(result)
+                                            "content": serialize_tool_result(result)
                                         }
                                         messages.append(tool_message)
                                     
@@ -641,14 +641,14 @@ async def process_chat_completions_stream(response, chat_request=None):
                                         "id": tool_call["id"],
                                         "type": "function_call_output",
                                         "call_id": tool_call["id"],
-                                        "output": result
+                                        "output": serialize_tool_result(result)
                                     })
                                     
                                     # Convert result to JSON for text delta
                                     try:
-                                        text = json.dumps(result)
+                                        text = serialize_tool_result(result)
                                     except TypeError:
-                                        text = json.dumps(str(result))
+                                        text = serialize_tool_result(str(result))
                                         
                                     # Emit text delta with the result
                                     text_event = OutputTextDelta(
@@ -733,7 +733,7 @@ async def process_chat_completions_stream(response, chat_request=None):
                                                 tool_message = {
                                                     "role": "tool",
                                                     "tool_call_id": tool_call["id"],
-                                                    "content": json.dumps(output_item.get("output", ""))
+                                                    "content": serialize_tool_result(output_item.get("output", ""))
                                                 }
                                                 messages.append(tool_message)
                                                 break

@@ -265,5 +265,14 @@ class MCPManager:
         logger.error(f"[MCP-EXECUTE] Available tools: {[t['name'] for t in self.mcp_functions_cache]}")
         raise RuntimeError(error_msg)
 
+        
+    def serialize_tool_result(result):
+        if hasattr(result, 'content') and isinstance(result.content, list):
+            content_list = [content.text for content in result.content if hasattr(content, 'text')]
+            tool_content = json.dumps(content_list)
+        else:
+            tool_content = json.dumps(result)
+        return tool_content
+
 # Singleton instance
 mcp_manager = MCPManager.get_instance() 

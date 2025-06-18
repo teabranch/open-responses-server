@@ -209,6 +209,16 @@ def convert_responses_to_chat_completions(request_data: dict) -> dict:
     if "tool_choice" in request_data:
         chat_request["tool_choice"] = request_data["tool_choice"]
     
+    # Handle reasoning parameter - only include if it has actual values (not just None/null)
+    if "reasoning" in request_data:
+        reasoning = request_data["reasoning"]
+        # Only include reasoning if it has actual non-null values
+        if isinstance(reasoning, dict) and any(v is not None for v in reasoning.values()):
+            chat_request["reasoning"] = reasoning
+            logger.info(f"[TOOL-CONVERSION] Including reasoning parameter: {reasoning}")
+        else:
+            logger.info("[TOOL-CONVERSION] Skipping reasoning parameter (all values are null)")
+    
     # Add optional parameters if they exist
     for key in ["user", "metadata"]:
         if key in request_data and request_data[key] is not None:

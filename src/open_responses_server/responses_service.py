@@ -16,6 +16,49 @@ conversation_history: Dict[str, List[Dict[str, Any]]] = {}
 def current_timestamp() -> int:
     return int(time.time())
 
+def validate_message_sequence(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Validate and fix the message sequence to ensure tool messages have preceding assistant messages with tool_calls.
+    This prevents the OpenAI API error: "messages with role 'tool' must be a response to a preceeding message with 'tool_calls'."
+    """
+    validated_messages = []
+    orphaned_tool_messages = []
+    
+    for i, message in enumerate(messages):
+        if message.get("role") == "tool":
+            # Check if the previous message is an assistant with tool_calls
+            tool_call_id = message.get("tool_call_id")
+            has_preceding_tool_call = False
+            
+            # Look backward from current position for matching tool call
+            for j in range(len(validated_messages) - 1, -1, -1):
+                prev_msg = validated_messages[j]
+                if prev_msg.get("role") == "assistant" and "tool_calls" in prev_msg:
+                    for tool_call in prev_msg["tool_calls"]:
+                        if tool_call.get("id") == tool_call_id:
+                            has_preceding_tool_call = True
+                            break
+                    if has_preceding_tool_call:
+                        break
+                # Stop looking if we hit another assistant message without tool_calls
+                elif prev_msg.get("role") == "assistant":
+                    break
+            
+            if has_preceding_tool_call:
+                validated_messages.append(message)
+                logger.debug(f"Valid tool message at position {i}: call_id={tool_call_id}")
+            else:
+                logger.warning(f"Orphaned tool message at position {i}: call_id={tool_call_id} - no preceding assistant with matching tool_call")
+                orphaned_tool_messages.append(message)
+        else:
+            validated_messages.append(message)
+    
+    if orphaned_tool_messages:
+        logger.warning(f"Removed {len(orphaned_tool_messages)} orphaned tool messages to prevent API validation error")
+        
+    logger.info(f"Message validation: {len(messages)} -> {len(validated_messages)} messages")
+    return validated_messages
+
 def convert_responses_to_chat_completions(request_data: dict) -> dict:
     """
     Convert a request in Responses API format to chat.completions API format.
@@ -100,6 +143,11 @@ def convert_responses_to_chat_completions(request_data: dict) -> dict:
                                     has_matching_tool_call = True
                                     break
                     
+                    # Debug: Log messages structure for debugging
+                    logger.debug(f"Messages so far: {len(messages)} messages")
+                    for i, msg in enumerate(messages):
+                        logger.debug(f"Message {i}: role={msg.get('role')}, has_tool_calls={'tool_calls' in msg}")
+                    
                     if has_matching_tool_call:
                         # Only add the tool response if we found a matching tool call
                         tool_message = {
@@ -108,10 +156,16 @@ def convert_responses_to_chat_completions(request_data: dict) -> dict:
                             "content": item.get("output", "")
                         }
                         messages.append(tool_message)
+                        logger.info(f"Added tool response for existing tool call {call_id}")
                     else:
                         # If no matching tool call, we need to add an assistant message with the tool call first
                         # as this could be from a previous conversation
                         tool_name = item.get("name", "unknown_tool")
+                        
+                        # Validate we have required fields
+                        if not tool_name or tool_name == "unknown_tool":
+                            logger.error(f"Cannot create tool call without tool name. Item: {item}")
+                            continue
                         
                         # Create an assistant message with a tool call
                         assistant_message = {
@@ -236,7 +290,11 @@ def convert_responses_to_chat_completions(request_data: dict) -> dict:
     if "reasoning" in chat_request:
         logger.warning(f"[TOOL-CONVERSION] WARNING: reasoning parameter still present: {chat_request['reasoning']}")
     
-    logger.info(f"Converted to chat completions: {len(messages)} messages, {len(chat_request.get('tools', []))} tools")
+    # Validate message sequence before sending to API
+    validated_messages = validate_message_sequence(messages)
+    chat_request["messages"] = validated_messages
+    
+    logger.info(f"Converted to chat completions: {len(validated_messages)} messages, {len(chat_request.get('tools', []))} tools")
     return chat_request
 
 

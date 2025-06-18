@@ -224,6 +224,18 @@ def convert_responses_to_chat_completions(request_data: dict) -> dict:
         if key in request_data and request_data[key] is not None:
             chat_request[key] = request_data[key]
     
+    # Final cleanup - ensure reasoning is completely removed if it has null values
+    if "reasoning" in chat_request:
+        reasoning = chat_request["reasoning"]
+        if isinstance(reasoning, dict) and all(v is None for v in reasoning.values()):
+            chat_request.pop("reasoning", None)
+            logger.info("[TOOL-CONVERSION] Removed reasoning parameter with all null values from chat_request")
+    
+    # Log final chat_request for debugging
+    logger.info(f"[TOOL-CONVERSION] Final chat_request keys: {list(chat_request.keys())}")
+    if "reasoning" in chat_request:
+        logger.warning(f"[TOOL-CONVERSION] WARNING: reasoning parameter still present: {chat_request['reasoning']}")
+    
     logger.info(f"Converted to chat completions: {len(messages)} messages, {len(chat_request.get('tools', []))} tools")
     return chat_request
 

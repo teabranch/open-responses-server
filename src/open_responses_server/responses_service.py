@@ -19,15 +19,23 @@ def current_timestamp() -> int:
 def validate_message_sequence(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
     Validate and fix the message sequence to ensure tool messages have preceding assistant messages with tool_calls.
-    This prevents the OpenAI API error: "messages with role 'tool' must be a response to a preceeding message with 'tool_calls'."
+    Also deduplicates tool messages with the same tool_call_id.
+    This prevents OpenAI API errors like "messages with role 'tool' must be a response to a preceeding message with 'tool_calls'."
     """
     validated_messages = []
     orphaned_tool_messages = []
+    seen_tool_call_ids = set()
     
     for i, message in enumerate(messages):
         if message.get("role") == "tool":
-            # Check if the previous message is an assistant with tool_calls
             tool_call_id = message.get("tool_call_id")
+            
+            # Check for duplicate tool call IDs
+            if tool_call_id in seen_tool_call_ids:
+                logger.warning(f"Duplicate tool message at position {i}: call_id={tool_call_id} - skipping duplicate")
+                continue
+            
+            # Check if the previous message is an assistant with tool_calls
             has_preceding_tool_call = False
             
             # Look backward from current position for matching tool call
@@ -46,6 +54,7 @@ def validate_message_sequence(messages: List[Dict[str, Any]]) -> List[Dict[str, 
             
             if has_preceding_tool_call:
                 validated_messages.append(message)
+                seen_tool_call_ids.add(tool_call_id)
                 logger.debug(f"Valid tool message at position {i}: call_id={tool_call_id}")
             else:
                 logger.warning(f"Orphaned tool message at position {i}: call_id={tool_call_id} - no preceding assistant with matching tool_call")
@@ -129,7 +138,8 @@ def convert_responses_to_chat_completions(request_data: dict) -> dict:
                     
                 elif item.get("type") == "function_call_output":
                     # Add tool output - log tool usage
-                    logger.info(f"Tool response: call_id={item.get('call_id')}, output={item.get('output', '')[:50]}...")
+                    logger.info(f"[TOOL-OUTPUT-PROCESSING] Processing function_call_output: call_id={item.get('call_id')}, output={item.get('output', '')[:50]}...")
+                    logger.info(f"[TOOL-OUTPUT-PROCESSING] Full item: {json.dumps(item, indent=2)}")
                     
                     # Check if we have a corresponding assistant message with a tool call first
                     call_id = item.get("call_id")
@@ -144,9 +154,11 @@ def convert_responses_to_chat_completions(request_data: dict) -> dict:
                                     break
                     
                     # Debug: Log messages structure for debugging
-                    logger.debug(f"Messages so far: {len(messages)} messages")
+                    logger.info(f"[TOOL-OUTPUT-PROCESSING] Messages so far: {len(messages)} messages")
                     for i, msg in enumerate(messages):
-                        logger.debug(f"Message {i}: role={msg.get('role')}, has_tool_calls={'tool_calls' in msg}")
+                        logger.info(f"[TOOL-OUTPUT-PROCESSING] Message {i}: role={msg.get('role')}, has_tool_calls={'tool_calls' in msg}")
+                        if msg.get("role") == "tool":
+                            logger.info(f"[TOOL-OUTPUT-PROCESSING] Tool message {i}: call_id={msg.get('tool_call_id')}")
                     
                     if has_matching_tool_call:
                         # Only add the tool response if we found a matching tool call
@@ -156,7 +168,7 @@ def convert_responses_to_chat_completions(request_data: dict) -> dict:
                             "content": item.get("output", "")
                         }
                         messages.append(tool_message)
-                        logger.info(f"Added tool response for existing tool call {call_id}")
+                        logger.info(f"[TOOL-OUTPUT-PROCESSING] Added tool response for existing tool call {call_id}")
                     else:
                         # If no matching tool call, we need to add an assistant message with the tool call first
                         # as this could be from a previous conversation
@@ -164,7 +176,7 @@ def convert_responses_to_chat_completions(request_data: dict) -> dict:
                         
                         # Validate we have required fields
                         if not tool_name or tool_name == "unknown_tool":
-                            logger.error(f"Cannot create tool call without tool name. Item: {item}")
+                            logger.error(f"[TOOL-OUTPUT-PROCESSING] Cannot create tool call without tool name. Item: {item}")
                             continue
                         
                         # Create an assistant message with a tool call
@@ -189,7 +201,7 @@ def convert_responses_to_chat_completions(request_data: dict) -> dict:
                             "content": item.get("output", "")
                         }
                         messages.append(tool_message)
-                        logger.info(f"Added assistant message with tool call and corresponding tool response for {tool_name}")
+                        logger.info(f"[TOOL-OUTPUT-PROCESSING] Added assistant message with tool call and corresponding tool response for {tool_name}")
                 elif item.get("type") == "message" and item.get("role") == "assistant":
                     # Handle assistant messages from previous conversations
                     content = ""

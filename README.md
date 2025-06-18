@@ -18,6 +18,7 @@ It handles stateful chat, tool calls, and future features like file search & cod
 
 ✅ Acts as a drop-in replacement for OpenAI’s Responses API.  
 ✅ Lets you run any backend AI (Ollama, vLLM, Groq, etc.) with OpenAI-compatible clients.  
+✅ MCP support around both Chat Completions and Responses APIs
 ✅ Supports OpenAI’s new Coding Assistant / Codex that requires Responses API.  
 ✅ Built for innovators, researchers, OSS enthusiasts.  
 ✅ Enterprise-ready: scalable, reliable, and secure for production workloads.
@@ -34,7 +35,7 @@ It handles stateful chat, tool calls, and future features like file search & cod
 - 📝 Persistent state (not just in-memory)
 - ✅ CLI validation	
 - 📝 hosted tools:
-  - 📝 MCPs support
+  - ✅ MCPs support
   - 📝 Web search: crawl4ai
   - 📝 File upload + search: graphiti
   - 📝 Code interpreter

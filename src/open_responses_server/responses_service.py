@@ -645,7 +645,7 @@ async def process_chat_completions_stream(response, chat_request=None):
                                         tool_message = {
                                             "role": "tool",
                                             "tool_call_id": tool_call["id"],
-                                            "content": serialize_tool_result(result)
+                                            "content": output_item.get("output", "")
                                         }
                                         messages.append(tool_message)
                                     
@@ -805,7 +805,7 @@ async def process_chat_completions_stream(response, chat_request=None):
                                                 tool_message = {
                                                     "role": "tool",
                                                     "tool_call_id": tool_call["id"],
-                                                    "content": serialize_tool_result(output_item.get("output", ""))
+                                                    "content": output_item.get("output", "")
                                                 }
                                                 messages.append(tool_message)
                                                 break

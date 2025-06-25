@@ -294,6 +294,8 @@ def serialize_tool_result(result):
              tool_content = json.dumps(content_list[0])
         else:
             tool_content = json.dumps(content_list)
+    elif isinstance(result, (dict, list)):
+        tool_content = json.dumps(result)
     else:
         try:
             logger.info(f"[MCP-SERIALIZE] Attempting to parse result as JSON: {result}")

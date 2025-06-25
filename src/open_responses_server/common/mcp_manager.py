@@ -4,6 +4,7 @@ import asyncio
 import logging
 import shutil
 import traceback
+import ast
 from pathlib import Path
 from contextlib import AsyncExitStack
 from typing import Dict, List, Any
@@ -55,7 +56,7 @@ class MCPServer:
                     }
                     tools.append(tool_data)
                     logger.debug(f"[MCP-TOOL-LIST] Server '{self.name}': found tool '{tool.name}' with description: '{tool_data['description']}'")
-        logger.info(f"[MCP-TOOL-LIST] Server '{self.name}': listed {len(tools)} tools: {[t['name'] for t in tools]}")
+        logger.debug(f"[MCP-TOOL-LIST] Server '{self.name}': listed {len(tools)} tools: {[t['name'] for t in tools]}")
         return tools
 
     async def execute_tool(self, tool_name: str, arguments: dict) -> Any:
@@ -65,7 +66,7 @@ class MCPServer:
         try:
             result = await self.session.call_tool(tool_name, arguments)
             logger.info(f"[MCP-EXEC] Server '{self.name}': tool '{tool_name}' executed successfully")
-            logger.debug(f"[MCP-EXEC] Server '{self.name}': tool '{tool_name}' result: {result}")
+            logger.info(f"[MCP-EXEC] Server '{self.name}': tool '{tool_name}' result: {result}")
             return result
         except Exception as e:
             logger.error(f"[MCP-EXEC] Server '{self.name}': tool '{tool_name}' failed: {e}")
@@ -192,9 +193,9 @@ class MCPManager:
         
         # Log detailed refresh results
         all_tool_names = [tool["name"] for tool in self.mcp_functions_cache]
-        logger.info(f"[MCP-REFRESH] Tool cache updated: {old_count} -> {new_count} tools")
-        logger.info(f"[MCP-REFRESH] Server tool counts: {server_tool_counts}")
-        logger.info(f"[MCP-REFRESH] Available tools: {all_tool_names}")
+        logger.debug(f"[MCP-REFRESH] Tool cache updated: {old_count} -> {new_count} tools")
+        logger.debug(f"[MCP-REFRESH] Server tool counts: {server_tool_counts}")
+        logger.debug(f"[MCP-REFRESH] Available tools: {all_tool_names}")
 
     async def _mcp_refresh_loop(self) -> None:
         """Background task: periodically refresh MCP tool cache."""
@@ -267,12 +268,40 @@ class MCPManager:
 
         
 def serialize_tool_result(result):
+    logger.info(f"[MCP-SERIALIZE] Serializing tool result: {result}")
     if hasattr(result, 'content') and isinstance(result.content, list):
-        content_list = [content.text for content in result.content if hasattr(content, 'text')]
+        content_list = []
+        for content in result.content:
+            if hasattr(content, 'text'):
+                text = content.text
+                try:
+                    # Try to parse as JSON, then dump again to ensure valid JSON
+                    logger.info(f"[MCP-SERIALIZE] Attempting to parse content as JSON: {text}")
+                    parsed = json.loads(text)
+                    logger.info(f"[MCP-SERIALIZE] Successfully parsed content as JSON: {parsed}")
+                    content_list.append(parsed)
+                except json.JSONDecodeError:
+                    try:
+                        logger.info(f"[MCP-SERIALIZE] JSON parsing failed, attempting to parse as Python literal: {text}")
+                        # It might be a string representation of a Python literal
+                        parsed_literal = ast.literal_eval(text)
+                        logger.info(f"[MCP-SERIALIZE] Successfully parsed as Python literal: {parsed_literal}")
+                        content_list.append(json.dumps(parsed_literal))
+                    except (ValueError, SyntaxError):
+                        # Not a valid Python literal either, just append as is
+                        logger.info(f"[MCP-SERIALIZE] Content is not valid JSON or Python literal, appending as text: {text}")
+                        content_list.append(text)
         tool_content = json.dumps(content_list)
     else:
-        tool_content = json.dumps(result)
+        try:
+            # Try to parse the result as JSON
+            logger.info(f"[MCP-SERIALIZE] Attempting to parse result as JSON: {result}")
+            result_object = json.loads(result)
+            tool_content = result
+        except json.JSONDecodeError:
+            tool_content = json.dumps(result)
+    logger.info(f"[MCP-SERIALIZE] Serialized tool result: {tool_content}")
     return tool_content
 
 # Singleton instance
-mcp_manager = MCPManager.get_instance() 
+mcp_manager = MCPManager.get_instance()

@@ -572,7 +572,7 @@ async def process_chat_completions_stream(response, chat_request=None):
                                     try:
                                         result = await mcp_manager.execute_mcp_tool(tool_name, args)
                                         logger.info(f"[TOOL-EXECUTE] ✓ MCP tool '{tool_name}' executed successfully")
-                                        logger.debug(f"[TOOL-EXECUTE] MCP tool '{tool_name}' result: {result}")
+                                        logger.info(f"[TOOL-EXECUTE] MCP tool '{tool_name}' result: {result}")
                                     except Exception as e:
                                         result = {"error": str(e)}
                                         logger.error(f"[TOOL-EXECUTE] ✗ MCP tool '{tool_name}' failed: {e}")
@@ -691,7 +691,7 @@ async def process_chat_completions_stream(response, chat_request=None):
                                     try:
                                         result = await mcp_manager.execute_mcp_tool(tool_call["function"]["name"], args)
                                         logger.info(f"[TOOL-CALLS-FINISH] ✓ MCP tool '{tool_call['function']['name']}' executed successfully")
-                                        logger.debug(f"[TOOL-CALLS-FINISH] MCP tool result: {result}")
+                                        logger.info(f"[TOOL-CALLS-FINISH] MCP tool result: {result}")
                                     except Exception as e:
                                         result = {"error": str(e)}
                                         logger.error(f"[TOOL-CALLS-FINISH] ✗ MCP tool '{tool_call['function']['name']}' failed: {e}")
@@ -706,19 +706,21 @@ async def process_chat_completions_stream(response, chat_request=None):
                                     logger.info(f"Emitting {done_event}")
                                     yield f"data: {json.dumps(done_event.dict())}\n\n"
                                     
+                                    # Convert result to JSON for text delta
+                                    try:
+                                        text = serialize_tool_result(result)
+                                    except TypeError:
+                                        logger.info(f"[TOOL-CALLS-FINISH] Failed to serialize tool result: {result}")
+                                        text = serialize_tool_result(str(result))
+
                                     # Add the tool execution result to the response
                                     response_obj.output.append({
                                         "id": tool_call["id"],
                                         "type": "function_call_output",
                                         "call_id": tool_call["id"],
-                                        "output": serialize_tool_result(result)
+                                        "output": text
                                     })
                                     
-                                    # Convert result to JSON for text delta
-                                    try:
-                                        text = serialize_tool_result(result)
-                                    except TypeError:
-                                        text = serialize_tool_result(str(result))
                                         
                                     # Emit text delta with the result
                                     text_event = OutputTextDelta(
@@ -823,6 +825,7 @@ async def process_chat_completions_stream(response, chat_request=None):
                             
                             logger.info(f"[TOOL-CALLS-FINISH] Completed processing all tool calls, final output has {len(response_obj.output)} items")
                             logger.info(f"Emitting completed event after tool_calls: {completed_event}")
+                            # Yield ResponseCompleted event as json (After converstion)
                             yield f"data: {json.dumps(completed_event.dict())}\n\n"
                             return  # End streaming after tool processing
                         

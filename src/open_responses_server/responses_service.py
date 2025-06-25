@@ -680,13 +680,13 @@ async def process_chat_completions_stream(response, chat_request=None):
                                 # For MCP tools, execute them immediately
                                 if is_mcp:
                                     logger.info(f"[TOOL-CALLS-FINISH] Executing MCP tool '{tool_call['function']['name']}'")
-                                    
+
                                     # Parse the arguments JSON
                                     try:
                                         args = json.loads(tool_call["function"]["arguments"])
                                     except Exception:
                                         args = {}
-                                        
+
                                     # Execute MCP tool
                                     try:
                                         result = await mcp_manager.execute_mcp_tool(tool_call["function"]["name"], args)
@@ -695,7 +695,7 @@ async def process_chat_completions_stream(response, chat_request=None):
                                     except Exception as e:
                                         result = {"error": str(e)}
                                         logger.error(f"[TOOL-CALLS-FINISH] ✗ MCP tool '{tool_call['function']['name']}' failed: {e}")
-                                    
+
                                     # Emit the arguments.done event
                                     done_event = ToolCallArgumentsDone(
                                         type="response.function_call_arguments.done",
@@ -705,13 +705,12 @@ async def process_chat_completions_stream(response, chat_request=None):
                                     )
                                     logger.info(f"Emitting {done_event}")
                                     yield f"data: {json.dumps(done_event.dict())}\n\n"
-                                    
-                                    # Convert result to JSON for text delta
+
+                                    # Convert result to JSON, with fallback to string if needed
                                     try:
-                                        text = serialize_tool_result(result)
+                                        text = json.dumps(result)
                                     except TypeError:
-                                        logger.info(f"[TOOL-CALLS-FINISH] Failed to serialize tool result: {result}")
-                                        text = serialize_tool_result(str(result))
+                                        text = json.dumps(str(result))
 
                                     # Add the tool execution result to the response
                                     response_obj.output.append({
@@ -720,8 +719,8 @@ async def process_chat_completions_stream(response, chat_request=None):
                                         "call_id": tool_call["id"],
                                         "output": text
                                     })
-                                    
-                                        
+
+
                                     # Emit text delta with the result
                                     text_event = OutputTextDelta(
                                         type="response.output_text.delta",
@@ -730,9 +729,9 @@ async def process_chat_completions_stream(response, chat_request=None):
                                         delta=text
                                     )
                                     yield f"data: {json.dumps(text_event.dict())}\n\n"
-                                    
+
                                     logger.info(f"[TOOL-CALLS-FINISH] Added function_call_output for MCP tool '{tool_call['function']['name']}'")
-                                    
+
                                 else:
                                     # For non-MCP tools, emit arguments.done and leave them in ready state for client
                                     logger.info(f"[TOOL-CALLS-FINISH] Keeping non-MCP tool '{tool_call['function']['name']}' in ready state for client")
@@ -800,12 +799,12 @@ async def process_chat_completions_stream(response, chat_request=None):
                                     if mcp_manager.is_mcp_tool(tool_call["function"]["name"]):
                                         # Find the result in the response output
                                         for output_item in response_obj.output:
-                                            if (output_item.get("type") == "function_call_output" and 
+                                            if (output_item.get("type") == "function_call_output" and
                                                 output_item.get("call_id") == tool_call["id"]):
                                                 tool_message = {
                                                     "role": "tool",
                                                     "tool_call_id": tool_call["id"],
-                                                    "content": output_item.get("output", "")
+                                                    "content": json.dumps(output_item.get("output", ""))
                                                 }
                                                 messages.append(tool_message)
                                                 break

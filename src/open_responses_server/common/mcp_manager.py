@@ -275,7 +275,6 @@ def serialize_tool_result(result):
             if hasattr(content, 'text'):
                 text = content.text
                 try:
-                    # Try to parse as JSON, then dump again to ensure valid JSON
                     logger.info(f"[MCP-SERIALIZE] Attempting to parse content as JSON: {text}")
                     parsed = json.loads(text)
                     logger.info(f"[MCP-SERIALIZE] Successfully parsed content as JSON: {parsed}")
@@ -283,23 +282,26 @@ def serialize_tool_result(result):
                 except json.JSONDecodeError:
                     try:
                         logger.info(f"[MCP-SERIALIZE] JSON parsing failed, attempting to parse as Python literal: {text}")
-                        # It might be a string representation of a Python literal
                         parsed_literal = ast.literal_eval(text)
                         logger.info(f"[MCP-SERIALIZE] Successfully parsed as Python literal: {parsed_literal}")
-                        content_list.append(json.dumps(parsed_literal))
+                        content_list.append(parsed_literal)
                     except (ValueError, SyntaxError):
-                        # Not a valid Python literal either, just append as is
                         logger.info(f"[MCP-SERIALIZE] Content is not valid JSON or Python literal, appending as text: {text}")
                         content_list.append(text)
-        tool_content = json.dumps(content_list)
+        # If there's only one item and it's a string, just return that string
+        # otherwise, dump the whole list.
+        if len(content_list) == 1:
+             tool_content = json.dumps(content_list[0])
+        else:
+            tool_content = json.dumps(content_list)
     else:
         try:
-            # Try to parse the result as JSON
             logger.info(f"[MCP-SERIALIZE] Attempting to parse result as JSON: {result}")
-            result_object = json.loads(result)
-            tool_content = result
-        except json.JSONDecodeError:
-            tool_content = json.dumps(result)
+            json.loads(str(result))
+            tool_content = str(result)
+        except (json.JSONDecodeError, TypeError):
+            tool_content = json.dumps(str(result))
+            
     logger.info(f"[MCP-SERIALIZE] Serialized tool result: {tool_content}")
     return tool_content
 

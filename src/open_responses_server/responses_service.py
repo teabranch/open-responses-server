@@ -577,27 +577,37 @@ async def process_chat_completions_stream(response, chat_request=None):
                                         result = {"error": str(e)}
                                         logger.error(f"[TOOL-EXECUTE] ✗ MCP tool '{tool_name}' failed: {e}")
                                     
+                                    logger.info(f"[TOOL-EXECUTE] Adding function_call_output for MCP tool '{tool_name}'")
                                     # Append as function_call_output
                                     response_obj.output.append({
                                         "id": tool_call["id"],
                                         "type": "function_call_output",
                                         "call_id": tool_call["id"],
-                                        "output": serialize_tool_result(result)
+                                        "output": result
                                     })
+                                    logger.info(f"[TOOL-EXECUTE] Added function_call_output for MCP tool '{tool_name}'")
                                     
+                                    # # Convert result to JSON, with fallback to string if needed
+                                    # try:
+                                    #     text = serialize_tool_result(result)
+                                    # except TypeError:
+                                    #     text = serialize_tool_result(str(result))
+
                                     # Convert result to JSON, with fallback to string if needed
                                     try:
-                                        text = serialize_tool_result(result)
+                                        text = json.dumps(result)
                                     except TypeError:
-                                        text = serialize_tool_result(str(result))
-                                        
+                                        text = json.dumps(str(result))
+                                    logger.info(f"[TOOL-EXECUTE] Emitting text delta for MCP tool '{tool_name}': {text}")
                                     text_event = OutputTextDelta(
                                         type="response.output_text.delta",
                                         item_id=tool_call["id"],
                                         output_index=0,
                                         delta=text
                                     )
+                                    logger.info(f"[TOOL-EXECUTE] Emitting text delta for MCP tool '{tool_name}': {text}")
                                     yield f"data: {json.dumps(text_event.dict())}\n\n"
+                                    logger.info(f"[TOOL-EXECUTE] Emitted text delta for MCP tool '{tool_name}'")
                                 else:
                                     # For non-MCP tools, send the function call back to the client in Responses API format
                                     logger.info(f"[TOOL-EXECUTE] Forwarding non-MCP tool call to client: {tool_name}")
@@ -645,7 +655,7 @@ async def process_chat_completions_stream(response, chat_request=None):
                                         tool_message = {
                                             "role": "tool",
                                             "tool_call_id": tool_call["id"],
-                                            "content": serialize_tool_result(result)
+                                            "content": json.dumps(result)
                                         }
                                         messages.append(tool_message)
                                     
@@ -696,38 +706,58 @@ async def process_chat_completions_stream(response, chat_request=None):
                                         result = {"error": str(e)}
                                         logger.error(f"[TOOL-CALLS-FINISH] ✗ MCP tool '{tool_call['function']['name']}' failed: {e}")
                                     
+                                    
                                     # Emit the arguments.done event
                                     done_event = ToolCallArgumentsDone(
                                         type="response.function_call_arguments.done",
                                         id=tool_call["item_id"],
                                         output_index=tool_call["output_index"],
                                         arguments=tool_call["function"]["arguments"]
-                                    )
+                                    ) 
                                     logger.info(f"Emitting {done_event}")
                                     yield f"data: {json.dumps(done_event.dict())}\n\n"
                                     
-                                    # Convert result to JSON for text delta
-                                    try:
-                                        text = serialize_tool_result(result)
-                                    except TypeError:
-                                        logger.info(f"[TOOL-CALLS-FINISH] Failed to serialize tool result: {result}")
-                                        text = serialize_tool_result(str(result))
+                                    # # Convert result to JSON for text delta
+                                    # try:
+                                    #     text = serialize_tool_result(result)
+                                    # except TypeError:
+                                    #     logger.info(f"[TOOL-CALLS-FINISH] Failed to serialize tool result: {result}")
+                                    #     text = serialize_tool_result(str(result))
+
+                                    # delta needs to be   "output": "{\"output\":\"Dockerfile\\n\",\"metadata\":{\"exit_code\":0,\"duration_seconds\":0}}" structure
+                                    #                     'output': '{"output": ["[{\\"name\\": \\"listings\\"}]"], "metadata": {"exit_code": 0, "duration_seconds": 0}}'}],
+                                    output_object_text = "{\"output\":\"table is listing3\\n\",\"metadata\":{\"exit_code\":0,\"duration_seconds\":0}}"
+
 
                                     # Add the tool execution result to the response
                                     response_obj.output.append({
                                         "id": tool_call["id"],
                                         "type": "function_call_output",
                                         "call_id": tool_call["id"],
-                                        "output": text
+                                        "output": result
                                     })
                                     
-                                        
+                                    # done_event = ToolCallArgumentsDone(
+                                    #     type="response.function_call_arguments.done",
+                                    #     id=tool_call["id"],
+                                    #     output_index=tool_call["output_index"],
+                                    #     arguments=tool_call["function"]["arguments"]
+                                    # )
+                                    # logger.info(f"Emitting {done_event}")
+                                    # yield f"data: {json.dumps(done_event.dict())}\n\n"
+
+                                    # Convert result to JSON, with fallback to string if needed
+                                    try:
+                                        text = json.dumps(result)
+                                    except TypeError:
+                                        text = json.dumps(str(result))
+
                                     # Emit text delta with the result
                                     text_event = OutputTextDelta(
                                         type="response.output_text.delta",
                                         item_id=tool_call["id"],
                                         output_index=0,
-                                        delta=text
+                                        delta=text  # Use the serialized output object
                                     )
                                     yield f"data: {json.dumps(text_event.dict())}\n\n"
                                     
@@ -794,7 +824,7 @@ async def process_chat_completions_stream(response, chat_request=None):
                                     } for tool_call in tool_calls.values()]
                                 }
                                 messages.append(assistant_message)
-                                
+                                #output_object_text = "{\"output\":\"table is listing3\\n\",\"metadata\":{\"exit_code\":0,\"duration_seconds\":0}}"
                                 # Add tool responses for executed MCP tools
                                 for tool_call in tool_calls.values():
                                     if mcp_manager.is_mcp_tool(tool_call["function"]["name"]):
@@ -802,10 +832,15 @@ async def process_chat_completions_stream(response, chat_request=None):
                                         for output_item in response_obj.output:
                                             if (output_item.get("type") == "function_call_output" and 
                                                 output_item.get("call_id") == tool_call["id"]):
+                                                text_response = json.loads(output_item.get('output', {}).json()).get('content', '')[0].get('text', '')
+                                                logger.info(f"[TOOL-CALLS-FINISH] Text response for MCP tool '{tool_call['function']['name']}': {text_response}")
+                                                logger.info(f"[TOOL-CALLS-FINISH] Adding tool response for MCP tool '{tool_call['function']['name']}' {output_item.get('output', '').json()}")
+                                                # Add the tool response to the conversation
+                                                #output_item.get("output", "").json()
                                                 tool_message = {
                                                     "role": "tool",
                                                     "tool_call_id": tool_call["id"],
-                                                    "content": serialize_tool_result(output_item.get("output", ""))
+                                                    "content": json.dumps(text_response)
                                                 }
                                                 messages.append(tool_message)
                                                 break
@@ -900,3 +935,45 @@ async def process_chat_completions_stream(response, chat_request=None):
             )
             
             yield f"data: {json.dumps(completed_event.dict())}\n\n" 
+
+def parse_tool_call_output(tool_result_dict: Dict[str, Any]) -> Any:
+    """
+    Parses the output of an OpenAI tool call to extract the core data.
+
+    This function is designed to handle the specific string format found
+    in the 'output' key of a 'function_call_output' event, extract the
+    'text' component, and parse it as JSON.
+
+    Args:
+        tool_result_dict: The dictionary representing the tool call result,
+                          which should have an 'output' key.
+
+    Returns:
+        The parsed data (e.g., a list or dictionary) from the 'text' field.
+        Returns None if the 'output' key is missing, the text cannot be
+        extracted, or the text is not valid JSON.
+    """
+    try:
+        # 1. Access the value of the 'output' key from the dictionary
+        output_string = tool_result_dict['output']
+
+        # 2. Use a regular expression to find and extract the content of the 'text' field
+        match = re.search(r"text=\\\"(.*?)\\\"", output_string)
+        
+        if not match:
+            # Return None if the regex pattern does not find a match
+            return None
+
+        # 3. Retrieve the captured group and prepare it for JSON parsing
+        text_value = match.group(1)
+        # The extracted string uses single quotes, json.loads needs double quotes
+        json_compatible_string = text_value.replace("'", '"')
+
+        # 4. Parse the string into a Python object and return it
+        data = json.loads(json_compatible_string)
+        return data
+
+    except (KeyError, AttributeError, json.JSONDecodeError, TypeError):
+        # Catch errors if 'output' key is missing, if match is None,
+        # if JSON is invalid, or if the input is not a dict.
+        return None

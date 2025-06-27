@@ -92,6 +92,7 @@ Minimal config to connect your AI backend:
 OPENAI_BASE_URL_INTERNAL=http://localhost:11434  # Ollama, vLLM, Groq, etc.
 OPENAI_BASE_URL=http://localhost:8080            # This server's endpoint
 OPENAI_API_KEY=sk-mockapikey123456789            # Mock key tunneled to backend
+MCP_SERVERS_CONFIG_PATH=./mcps.json              # Path to mcps servers json file 
 ```
 
 Server binding:

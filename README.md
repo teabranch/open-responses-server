@@ -54,6 +54,7 @@ pip install open-responses-server
 Or install from source:
 
 ```
+pip install uv
 uv venv
 uv pip install .
 uv pip install -e ".[dev]"  # dev dependencies

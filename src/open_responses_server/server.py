@@ -1295,7 +1295,7 @@ async def proxy_endpoint(request: Request, path_name: str):
                     async with httpx.AsyncClient(timeout=60.0) as client:
                         async with client.stream(
                             request.method,
-                            f"{OPENAI_BASE_URL_INTERNAL}/v1/{path_name}",  # Add /v1 here
+                            f"{OPENAI_BASE_URL_INTERNAL}/{path_name}",
                             headers=headers,
                             content=body,
                             timeout=60.0

@@ -7,11 +7,29 @@ import traceback
 from pathlib import Path
 from contextlib import AsyncExitStack
 from typing import Dict, List, Any
+from urllib.parse import urlparse, urlunparse
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
+from mcp.client.sse import sse_client
+from mcp.client.streamable_http import streamablehttp_client
 
 from .config import MCP_TOOL_REFRESH_INTERVAL, MCP_SERVERS_CONFIG_PATH, logger
+
+
+def _sanitize_url(url: str) -> str:
+    """Strip query string and fragment from a URL to avoid logging secrets."""
+    parsed = urlparse(url)
+    return urlunparse((parsed.scheme, parsed.netloc, parsed.path, "", "", ""))
+
+
+def _redact_config(config: dict) -> dict:
+    """Return a copy of a server config with sensitive fields redacted."""
+    redacted = dict(config)
+    if "headers" in redacted:
+        redacted["headers"] = {k: "***" for k in redacted["headers"]}
+    return redacted
+
 
 class MCPServer:
     """Wrapper for an MCP server session and tool execution."""
@@ -22,22 +40,105 @@ class MCPServer:
         self.session: ClientSession | None = None
         self._cleanup_lock = asyncio.Lock()
 
-    async def initialize(self) -> None:
-        command = shutil.which(self.config.get("command")) if self.config.get("command") != "npx" else shutil.which("npx")
+    async def _init_stdio(self):
+        """Set up stdio transport and return (read, write) streams."""
+        raw_command = self.config.get("command")
+        if not isinstance(raw_command, str) or not raw_command.strip():
+            raise ValueError(
+                f"MCP server '{self.name}' with type 'stdio' "
+                f"requires a non-empty 'command' string"
+            )
+        command = shutil.which(
+            "npx" if raw_command == "npx" else raw_command
+        )
         if not command:
-            raise ValueError(f"Invalid command for MCP server {self.name}")
-        logger.info(f"[MCP-INIT] Server '{self.name}': command='{command}', args={self.config.get('args', [])}")
+            raise ValueError(
+                f"Command '{raw_command}' not found "
+                f"for MCP server '{self.name}'"
+            )
+        logger.info(
+            f"[MCP-INIT] Server '{self.name}': "
+            f"command='{command}', args={self.config.get('args', [])}"
+        )
         params = StdioServerParameters(
             command=command,
             args=self.config.get("args", []),
-            env={**os.environ, **self.config.get("env", {})} if self.config.get("env") else None,
+            env=(
+                {**os.environ, **self.config.get("env", {})}
+                if self.config.get("env") else None
+            ),
         )
-        transport = await self.exit_stack.enter_async_context(stdio_client(params))
-        read, write = transport
-        session = await self.exit_stack.enter_async_context(ClientSession(read, write))
+        transport = await self.exit_stack.enter_async_context(
+            stdio_client(params)
+        )
+        return transport
+
+    async def _init_sse(self):
+        """Set up SSE transport and return (read, write) streams."""
+        url = self.config.get("url")
+        if not url:
+            raise ValueError(
+                f"MCP server '{self.name}' with type 'sse' "
+                f"requires a 'url'"
+            )
+        headers = self.config.get("headers")
+        logger.info(
+            f"[MCP-INIT] Server '{self.name}': "
+            f"url='{_sanitize_url(url)}'"
+        )
+        transport = await self.exit_stack.enter_async_context(
+            sse_client(url=url, headers=headers)
+        )
+        return transport
+
+    async def _init_streamable_http(self):
+        """Set up streamable-http transport and return (read, write)."""
+        url = self.config.get("url")
+        if not url:
+            raise ValueError(
+                f"MCP server '{self.name}' with type "
+                f"'streamable-http' requires a 'url'"
+            )
+        headers = self.config.get("headers")
+        logger.info(
+            f"[MCP-INIT] Server '{self.name}': "
+            f"url='{_sanitize_url(url)}'"
+        )
+        transport = await self.exit_stack.enter_async_context(
+            streamablehttp_client(url=url, headers=headers)
+        )
+        return transport[0], transport[1]
+
+    async def initialize(self) -> None:
+        transport_type = self.config.get("type", "stdio")
+        logger.info(
+            f"[MCP-INIT] Server '{self.name}': "
+            f"transport='{transport_type}'"
+        )
+
+        init_methods = {
+            "stdio": self._init_stdio,
+            "sse": self._init_sse,
+            "streamable-http": self._init_streamable_http,
+        }
+        init_fn = init_methods.get(transport_type)
+        if not init_fn:
+            raise ValueError(
+                f"Unknown transport type '{transport_type}' for "
+                f"MCP server '{self.name}'. "
+                f"Supported types: stdio, sse, streamable-http"
+            )
+
+        read, write = await init_fn()
+        session = await self.exit_stack.enter_async_context(
+            ClientSession(read, write)
+        )
         await session.initialize()
         self.session = session
-        logger.info(f"[MCP-INIT] Server '{self.name}' session initialized successfully")
+        logger.info(
+            f"[MCP-INIT] Server '{self.name}' "
+            f"session initialized successfully"
+        )
 
     async def list_tools(self) -> List[Dict[str, Any]]:
         """List available tools with metadata from the server."""
@@ -77,6 +178,7 @@ class MCPServer:
             self.session = None
             logger.info(f"[MCP-CLEANUP] Server '{self.name}' cleaned up")
 
+
 class MCPManager:
     """Manages MCP servers, tool caching, and execution."""
     _instance = None
@@ -106,7 +208,7 @@ class MCPManager:
             logger.info(f"[MCP-STARTUP] Found {len(server_configs)} server configurations: {list(server_configs.keys())}")
             
             for name, srv in server_configs.items():
-                logger.info(f"[MCP-STARTUP] Initializing server '{name}' with config: {srv}")
+                logger.info(f"[MCP-STARTUP] Initializing server '{name}' with config: {_redact_config(srv)}")
                 server = MCPServer(name, srv)
                 try:
                     await server.initialize()

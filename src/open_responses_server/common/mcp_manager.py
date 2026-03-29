@@ -10,6 +10,8 @@ from typing import Dict, List, Any
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
+from mcp.client.sse import sse_client
+from mcp.client.streamable_http import streamablehttp_client
 
 from .config import MCP_TOOL_REFRESH_INTERVAL, MCP_SERVERS_CONFIG_PATH, logger
 
@@ -23,17 +25,43 @@ class MCPServer:
         self._cleanup_lock = asyncio.Lock()
 
     async def initialize(self) -> None:
-        command = shutil.which(self.config.get("command")) if self.config.get("command") != "npx" else shutil.which("npx")
-        if not command:
-            raise ValueError(f"Invalid command for MCP server {self.name}")
-        logger.info(f"[MCP-INIT] Server '{self.name}': command='{command}', args={self.config.get('args', [])}")
-        params = StdioServerParameters(
-            command=command,
-            args=self.config.get("args", []),
-            env={**os.environ, **self.config.get("env", {})} if self.config.get("env") else None,
-        )
-        transport = await self.exit_stack.enter_async_context(stdio_client(params))
-        read, write = transport
+        transport_type = self.config.get("type", "stdio")
+        logger.info(f"[MCP-INIT] Server '{self.name}': transport='{transport_type}'")
+
+        if transport_type == "stdio":
+            command = shutil.which(self.config.get("command")) if self.config.get("command") != "npx" else shutil.which("npx")
+            if not command:
+                raise ValueError(f"Invalid command for MCP server {self.name}")
+            logger.info(f"[MCP-INIT] Server '{self.name}': command='{command}', args={self.config.get('args', [])}")
+            params = StdioServerParameters(
+                command=command,
+                args=self.config.get("args", []),
+                env={**os.environ, **self.config.get("env", {})} if self.config.get("env") else None,
+            )
+            transport = await self.exit_stack.enter_async_context(stdio_client(params))
+            read, write = transport
+
+        elif transport_type == "sse":
+            url = self.config.get("url")
+            if not url:
+                raise ValueError(f"MCP server '{self.name}' with type 'sse' requires a 'url'")
+            headers = self.config.get("headers")
+            logger.info(f"[MCP-INIT] Server '{self.name}': url='{url}'")
+            transport = await self.exit_stack.enter_async_context(sse_client(url=url, headers=headers))
+            read, write = transport
+
+        elif transport_type == "streamable-http":
+            url = self.config.get("url")
+            if not url:
+                raise ValueError(f"MCP server '{self.name}' with type 'streamable-http' requires a 'url'")
+            headers = self.config.get("headers")
+            logger.info(f"[MCP-INIT] Server '{self.name}': url='{url}'")
+            transport = await self.exit_stack.enter_async_context(streamablehttp_client(url=url, headers=headers))
+            read, write, _get_session_id = transport
+
+        else:
+            raise ValueError(f"Unknown transport type '{transport_type}' for MCP server '{self.name}'. Supported types: stdio, sse, streamable-http")
+
         session = await self.exit_stack.enter_async_context(ClientSession(read, write))
         await session.initialize()
         self.session = session

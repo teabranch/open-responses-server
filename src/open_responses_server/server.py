@@ -22,15 +22,9 @@ from pydantic import BaseModel, Field
 import time
 import traceback
 from dotenv import load_dotenv
-from contextlib import AsyncExitStack
-
 # MCP support imports
 from pathlib import Path
-import shutil
-from mcp import ClientSession, StdioServerParameters
-from mcp.client.stdio import stdio_client
-from mcp.client.sse import sse_client
-from mcp.client.streamable_http import streamablehttp_client
+from .common.mcp_manager import MCPServer
 
 __version__ = "0.1.0"
 __author__ = "TeaBranch"
@@ -112,83 +106,6 @@ async def _mcp_refresh_loop() -> None:
     while True:
         await _refresh_mcp_functions()
         await asyncio.sleep(MCP_TOOL_REFRESH_INTERVAL)
-
-class MCPServer:
-    """Wrapper for an MCP server session and tool execution."""
-    def __init__(self, name: str, config: dict):
-        self.name = name
-        self.config = config
-        self.exit_stack = AsyncExitStack()
-        self.session: ClientSession | None = None
-        self._cleanup_lock = asyncio.Lock()
-
-    async def initialize(self) -> None:
-        transport_type = self.config.get("type", "stdio")
-
-        if transport_type == "stdio":
-            raw_command = self.config.get("command")
-            if not isinstance(raw_command, str) or not raw_command.strip():
-                raise ValueError(f"MCP server '{self.name}' with type 'stdio' requires a non-empty 'command' string")
-            command = shutil.which("npx" if raw_command == "npx" else raw_command)
-            if not command:
-                raise ValueError(f"Command '{raw_command}' not found for MCP server '{self.name}'")
-            params = StdioServerParameters(
-                command=command,
-                args=self.config.get("args", []),
-                env={**os.environ, **self.config.get("env", {})} if self.config.get("env") else None,
-            )
-            transport = await self.exit_stack.enter_async_context(stdio_client(params))
-            read, write = transport
-
-        elif transport_type == "sse":
-            url = self.config.get("url")
-            if not url:
-                raise ValueError(f"MCP server '{self.name}' with type 'sse' requires a 'url'")
-            headers = self.config.get("headers")
-            transport = await self.exit_stack.enter_async_context(sse_client(url=url, headers=headers))
-            read, write = transport
-
-        elif transport_type == "streamable-http":
-            url = self.config.get("url")
-            if not url:
-                raise ValueError(f"MCP server '{self.name}' with type 'streamable-http' requires a 'url'")
-            headers = self.config.get("headers")
-            transport = await self.exit_stack.enter_async_context(streamablehttp_client(url=url, headers=headers))
-            read, write = transport[0], transport[1]
-
-        else:
-            raise ValueError(f"Unknown transport type '{transport_type}' for MCP server '{self.name}'. Supported types: stdio, sse, streamable-http")
-
-        session = await self.exit_stack.enter_async_context(ClientSession(read, write))
-        await session.initialize()
-        self.session = session
-
-    async def list_tools(self) -> List[Dict[str, Any]]:
-        """List available tools with metadata from the server."""
-        if not self.session:
-            raise RuntimeError(f"MCP server {self.name} not initialized")
-        resp = await self.session.list_tools()
-        tools: List[Dict[str, Any]] = []
-        for item in resp:
-            if isinstance(item, tuple) and item[0] == "tools":
-                for tool in item[1]:
-                    # Gather name, description, and parameters schema
-                    tools.append({
-                        "name": tool.name,
-                        "description": getattr(tool, "description", None),
-                        "parameters": getattr(tool, "inputSchema", {}),
-                    })
-        return tools
-
-    async def execute_tool(self, tool_name: str, arguments: dict) -> Any:
-        if not self.session:
-            raise RuntimeError(f"MCP server {self.name} not initialized")
-        return await self.session.call_tool(tool_name, arguments)
-
-    async def cleanup(self) -> None:
-        async with self._cleanup_lock:
-            await self.exit_stack.aclose()
-            self.session = None
 
 async def execute_mcp_tool(tool_name: str, arguments: dict) -> Any:
     """Finds the appropriate MCP server hosting the tool and executes it."""

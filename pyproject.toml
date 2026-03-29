@@ -54,6 +54,9 @@ version = {attr = "open_responses_server.version.__version__"}
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+
 [project.urls]
 Homepage = "https://github.com/teabranch/open-responses-server"
 Documentation = "https://github.com/teabranch/open-responses-server"

@@ -1,5 +1,10 @@
 FROM python:3.12-slim AS builder
 
+# Install build dependencies (needed for cffi/cryptography on arm)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc build-essential libffi-dev \
+    && rm -rf /var/lib/apt/lists/*
+
 # Install uv
 RUN pip install uv
 

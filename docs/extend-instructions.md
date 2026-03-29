@@ -1,3 +1,8 @@
+---
+title: Extending
+nav_order: 6
+---
+
 # Extending OpenAI Responses Server with Web Search and RAG
 
 This document provides instructions for extending the OpenAI Responses Server with web search capabilities and Retrieval-Augmented Generation (RAG) functionality. These features allow the LLM to access real-time information from the internet and retrieve relevant data from knowledge bases to enhance response quality.

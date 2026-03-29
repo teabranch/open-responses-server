@@ -126,6 +126,8 @@ async def server_process(python_executable, temp_env_file):
 def mock_httpx_client(monkeypatch):
     """Mock the httpx client for unit tests."""
     class MockAsyncClient:
+        base_url = "http://mock-llm:8000"
+
         async def post(self, url, **kwargs):
             class MockResponse:
                 status_code = 200

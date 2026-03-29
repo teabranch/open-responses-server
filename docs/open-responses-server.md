@@ -1,126 +1,131 @@
-# Open Responses Server - Architecture Overview
+---
+title: Architecture
+nav_order: 1
+---
 
-## Introduction
+## Open Responses Server — Architecture Overview
 
-The Open Responses Server is a proxy adapter that translates between different OpenAI-compatible API formats. Specifically, it provides translation between the Responses API format and the chat.completions API format. This enables applications designed for one API format to work with services that support a different format.
+## What It Does
 
-## High-Level Components
+Open Responses Server is a FastAPI proxy that translates OpenAI's Responses API
+into Chat Completions API calls, allowing any OpenAI-compatible backend (Ollama,
+vLLM, LiteLLM, Groq, or OpenAI itself) to serve the Responses API. It also
+provides a `/v1/chat/completions` endpoint with automatic MCP tool injection and
+a tool-call execution loop, plus a generic proxy for all other endpoints.
 
-The server is built with FastAPI and includes these main components:
+## Module Map
 
-1. **API Adapter** - The core translation layer between API formats
-2. **Request Handling** - Processing incoming requests to the `/responses` endpoint
-3. **Response Streaming** - Converting streaming responses between formats
-4. **Proxy Support** - Forwarding other requests directly to the backend LLM service
+| Module | Purpose |
+| --- | --- |
+| `api_controller.py` | FastAPI app, route definitions, CORS, startup/shutdown hooks, MCP tool injection for `/responses` |
+| `responses_service.py` | Responses-to-ChatCompletions request conversion, SSE stream processing, conversation history |
+| `chat_completions_service.py` | `/v1/chat/completions` handler with MCP tool injection and tool-call loop (streaming + non-streaming) |
+| `common/config.py` | All configuration via environment variables, logging setup |
+| `common/llm_client.py` | `LLMClient` singleton wrapping `httpx.AsyncClient` pointed at the backend |
+| `common/mcp_manager.py` | `MCPManager` singleton: MCP server lifecycle, tool discovery/caching, execution, result serialization |
+| `models/responses_models.py` | Pydantic models for all Responses API types and SSE streaming events |
+| `server_entrypoint.py` | Uvicorn entry point (imports `app` from `api_controller`) |
+| `cli.py` | `otc` CLI: `start`, `configure`, `help` commands |
+| `version.py` | `__version__` string, read dynamically by setuptools |
+| `server.py` | Legacy duplicate of api_controller (not imported by active code) |
+| `is_mcp_tool.py` | Standalone utility, superseded by `MCPManager.is_mcp_tool()` |
+
+## Request Routing
+
+```text
+Client
+  │
+  ├─ POST /responses
+  │    → api_controller.create_response()
+  │    → MCP tools injected into request
+  │    → responses_service.convert_responses_to_chat_completions()
+  │    → LLM backend POST /v1/chat/completions (streaming)
+  │    → responses_service.process_chat_completions_stream()
+  │    → SSE events in Responses API format back to client
+  │
+  ├─ POST /v1/chat/completions
+  │    → api_controller.chat_completions()
+  │    → chat_completions_service.handle_chat_completions()
+  │    → MCP tools injected into request
+  │    → Tool-call loop (up to MAX_TOOL_CALL_ITERATIONS)
+  │    → Final response streamed or returned as JSON
+  │
+  ├─ GET /health → {"status": "ok"}
+  ├─ GET /       → {"message": "Open Responses Server is running."}
+  │
+  └─ GET/POST /{path} (catch-all proxy)
+       → Forwarded to LLM backend at /v1/{path}
+       → Response proxied back (streaming or non-streaming)
+```
 
 ## Configuration
 
-The server reads configuration from environment variables:
-- `OPENAI_BASE_URL_INTERNAL` - The internal URL of the LLM API service (default: http://localhost:8000)
-- `OPENAI_BASE_URL` - The external URL for clients (default: http://localhost:8080)
-- `OPENAI_API_KEY` - API key for authentication (default: "dummy-key")
-- `API_ADAPTER_HOST` - Host address to bind the server (default: 0.0.0.0)
-- `API_ADAPTER_PORT` - Port to run the server on (default: 8080)
+All configuration is via environment variables, loaded from `.env` via
+`python-dotenv`. Defined in `common/config.py`.
 
-## Data Models
+| Variable | Default | Description |
+| --- | --- | --- |
+| `OPENAI_BASE_URL_INTERNAL` | `http://localhost:8000` | Backend LLM API URL |
+| `OPENAI_BASE_URL` | `http://localhost:8080` | This server's external URL |
+| `OPENAI_API_KEY` | `dummy-key` | API key passed to backend |
+| `API_ADAPTER_HOST` | `0.0.0.0` | Server bind address |
+| `API_ADAPTER_PORT` | `8080` | Server port |
+| `MCP_TOOL_REFRESH_INTERVAL` | `10` | Seconds between MCP tool cache refreshes |
+| `MCP_SERVERS_CONFIG_PATH` | `src/open_responses_server/servers_config.json` | Path to MCP servers JSON config |
+| `MAX_CONVERSATION_HISTORY` | `100` | Max stored conversation entries |
+| `MAX_TOOL_CALL_ITERATIONS` | `25` | Max tool-call loop iterations |
 
-The server uses Pydantic models to define the structure of:
-- Tool functions and tool definitions
-- Messages and their content
-- Response objects and events
-- Request parameters
+### MCP Server Configuration
 
-## Core Functionality
+The JSON file at `MCP_SERVERS_CONFIG_PATH` defines MCP servers:
 
-### Request Translation: Responses API → Chat Completions
+```json
+{
+  "mcpServers": {
+    "server-name": {
+      "command": "executable",
+      "args": ["arg1", "arg2"],
+      "env": {"KEY": "value"}
+    }
+  }
+}
+```
 
-The `convert_responses_to_chat_completions` function transforms requests from the Responses API format to the chat completions format:
+Each server is started as a subprocess via `stdio_client` from the `mcp`
+library.
 
-1. It copies basic parameters like model name, temperature, and top_p
-2. Converts instructions to system messages
-3. Processes user messages from the input array
-4. Transforms tool function definitions
-5. Handles tool responses and maintains conversation context
+## Startup / Shutdown Lifecycle
 
-### Response Translation: Chat Completions → Responses API
+### Startup
 
-When handling streaming responses from the chat completions API, the server:
+1. **LLM Client** — `startup_llm_client()` creates the `httpx.AsyncClient`
+   singleton pointed at `OPENAI_BASE_URL_INTERNAL`
+2. **MCP Servers** — `mcp_manager.startup_mcp_servers()`:
+   - Loads `servers_config.json`
+   - Initializes each `MCPServer` via stdio (subprocess)
+   - Populates tool cache with initial tool discovery
+   - Builds `tool_name → server_name` mapping for fast lookup
+   - Starts background refresh task (periodic tool re-discovery)
 
-1. Creates an initial response object with a unique ID
-2. Tracks the state of tool calls being built incrementally
-3. Emits events like:
-   - `response.created` - The initial response creation
-   - `response.in_progress` - Updates during processing
-   - `response.output_text.delta` - Text generation updates
-   - `response.function_call_arguments.delta` - Tool call argument updates
-   - `response.function_call_arguments.done` - Completed tool calls
-   - `response.completed` - Final response completion
+### Shutdown
 
-## Tool and Function Call Handling
+1. **LLM Client** — closes `httpx.AsyncClient`
+2. **MCP Servers** — cancels refresh task, calls `cleanup()` on each server
 
-The server has specialized handling for tool function calls:
+## Conversation History
 
-### Incoming Tool Definitions
+In-memory dictionary keyed by `response_id`, storing the full message list for
+multi-turn conversations. Loaded via `previous_response_id` in subsequent
+requests. Trimmed when exceeding `MAX_CONVERSATION_HISTORY`.
 
-When a client submits a request with tools:
-1. Each tool definition is converted to the chat completions format
-2. The `function` property with name, description, and parameters is preserved
-3. The `tool_choice` parameter is maintained when present
+See [Events & Tool Handling](events-and-tool-handling.md#conversation-history)
+for details on save points and message validation.
 
-### Outgoing Function Calls
+## Further Reading
 
-When the LLM responds with a function call:
-1. The server tracks each tool call in a dictionary by index
-2. As function name and arguments stream in, they're buffered and converted to the Responses format
-3. Tool calls are emitted as events with unique IDs
-4. Arguments are streamed as delta events to provide real-time feedback
-5. When complete, a "done" event is emitted
-
-For example, a single function call may generate:
-1. A tool call creation event
-2. Multiple argument delta events as the arguments stream in
-3. A final "done" event when the arguments are complete
-
-## Request Flow
-
-1. Client sends a request to `/responses`
-2. The request is validated and logged
-3. Request is converted from Responses format to chat.completions format
-4. The converted request is forwarded to the LLM API
-5. If streaming, responses are processed chunk by chunk and converted back
-6. Events are emitted in the Responses API format
-7. The final response is sent back to the client
-
-## Proxy Capabilities
-
-For requests not targeting the `/responses` endpoint, the server acts as a transparent proxy:
-1. It forwards the request to the actual LLM API
-2. Preserves headers (except 'host')
-3. Adds authentication if needed
-4. Returns the response directly
-
-## Error Handling
-
-The server includes error handling at multiple levels:
-1. JSON parsing errors during stream processing
-2. API errors from the LLM service
-3. General exceptions during request processing
-
-## Key Functions
-
-1. `convert_responses_to_chat_completions` - Translates request formats
-2. `process_chat_completions_stream` - Processes streaming responses
-3. `create_response` - Main endpoint handler for the `/responses` route
-4. `proxy_endpoint` - Catch-all handler for other routes
-
-## Future Development Considerations
-
-When refactoring this server, consider:
-
-1. **Separation of concerns** - Extract the conversion logic into separate modules
-2. **Configuration management** - Move configuration to a dedicated module
-3. **Error handling** - Enhance error reporting and recovery mechanisms
-4. **Testing** - Add more comprehensive tests for edge cases
-5. **Logging** - Optimize logging to focus on important information without excessive output
-
-By understanding these components, you'll be well-prepared to refactor the server while maintaining its core functionality of translating between API formats.
+- [Events & Tool Handling](events-and-tool-handling.md) — SSE event types,
+  emission sequences, tool lifecycle
+- [API Flow Diagrams](responses_flow.md) — Mermaid sequence diagrams for both
+  endpoints
+- [Testing Guide](testing-guide.md) — Running tests and writing new ones
+- [CLI Usage](cli-local.md) — `otc` commands

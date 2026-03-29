@@ -1,18 +1,63 @@
-# _config.yml
 title: Open Responses Server
-description: A plug-and-play server that speaks OpenAI’s Responses API—no matter which AI backend you’re running.
-baseurl: "/open-responses-server" # Or "" if it's a user/org page like your-username.github.io
+description: >-
+  A plug-and-play server that speaks OpenAI's Responses API—no matter which AI backend you're running.
+baseurl: "/open-responses-server"
 url: "https://teabranch.github.io"
+
+theme: just-the-docs
+color_scheme: anthropic
+
+search_enabled: true
+search:
+  button: true
+
+aux_links:
+  "GitHub":
+    - "https://github.com/teabranch/open-responses-server"
+aux_links_new_tab: true
+
+footer_content: >-
+  Open Responses Server — Licensed under
+  <a href="https://github.com/teabranch/open-responses-server/blob/main/LICENSE">MIT</a>.
 
 plugins:
   - jekyll-seo-tag
+  - jekyll-relative-links
 
-# Add Google Site Verification
+relative_links:
+  enabled: true
+  collections: false
+
+defaults:
+  - scope:
+      path: ""
+    values:
+      layout: "default"
+
 webmaster_verifications:
   google: SAWMasZ1hKCZm8hnk0xFUgqnFYYPgdrKG8jKuTJa6a0
-  # You can also add codes for Bing, Yandex, Baidu, and Facebook App ID here
-  # bing: YOUR_BING_CODE
-  # yandex: YOUR_YANDEX_CODE
-  # baidu: YOUR_BAIDU_CODE
-  # facebook_app_id: YOUR_FACEBOOK_APP_ID
-  # facebook_admins: YOUR_FACEBOOK_USER_ID
+
+exclude:
+  - README.md
+  - CLAUDE.md
+  - LICENSE
+  - Gemfile
+  - Gemfile.lock
+  - .gitignore
+  - .github/
+  - .claude/
+  - src/
+  - tests/
+  - test_tools/
+  - demo/
+  - examples/
+  - pyproject.toml
+  - setup.py
+  - uv.lock
+  - run_tests.sh
+  - release.py
+  - start.py
+  - Dockerfile
+  - sonar-project.properties
+  - __pycache__/
+  - resources/

@@ -1,3 +1,8 @@
+---
+title: Security
+nav_order: 7
+---
+
 # Security Scanning Setup
 
 This project uses multiple security scanning tools to ensure code quality and security. Below is information about the setup and how to use these tools.

@@ -4,7 +4,7 @@ Tests for the server module
 import json
 import pytest
 import asyncio
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, AsyncMock
 from fastapi.testclient import TestClient
 from open_responses_server.api_controller import app
 from open_responses_server.responses_service import convert_responses_to_chat_completions
@@ -138,8 +138,9 @@ class TestServer:
     @pytest.mark.asyncio
     async def test_proxy_endpoint(self, client, mock_httpx_client):
         """Test the proxy endpoint functionality"""
-        # Patch the AsyncClient to avoid real HTTP requests
-        with patch('open_responses_server.api_controller.httpx.AsyncClient', return_value=mock_httpx_client):
+        # Patch LLMClient.get_client (async) to return our mock
+        mock_get_client = AsyncMock(return_value=mock_httpx_client)
+        with patch('open_responses_server.api_controller.LLMClient.get_client', mock_get_client):
             # Test GET request
             response = client.get("/v1/models")
             assert response.status_code == 200
@@ -153,7 +154,7 @@ class TestServerIntegration:
     @pytest.mark.asyncio
     async def test_server_startup(self, server_process):
         """Test that the server starts up correctly"""
-        process, base_url = await server_process.__anext__()
+        process, base_url = server_process
         
         # Test that the server is running and responds to health check
         import httpx

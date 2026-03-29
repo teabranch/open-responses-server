@@ -1,3 +1,8 @@
+---
+title: Testing Guide
+nav_order: 4
+---
+
 # Testing Guide
 
 This document provides an overview of the test suite for the OpenAI Responses Server, including how to run tests, what tests are included, and best practices for contributing new tests.

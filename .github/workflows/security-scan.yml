@@ -13,49 +13,49 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      
+
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.11'
-          
+          python-version: '3.12'
+
+      - name: Install uv
+        run: pip install uv
+
       - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install bandit
-          pip install -e ".[dev]"
-          
+        run: uv pip install -e ".[dev]" bandit --system
+
       - name: Run Bandit
         run: bandit -r src/ -f json -o bandit-results.json
         continue-on-error: true
-        
+
       - name: Upload Bandit results
         uses: actions/upload-artifact@v4
         with:
           name: bandit-results
           path: bandit-results.json
-          
+
   pylint:
     name: Pylint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      
+
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.11'
-          
+          python-version: '3.12'
+
+      - name: Install uv
+        run: pip install uv
+
       - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install pylint
-          pip install -e ".[dev]"
-          
+        run: uv pip install -e ".[dev]" pylint --system
+
       - name: Run pylint
-        run: pylint --disable=C0111,C0103 --generate-rcfile > .pylintrc && pylint src/ --output-format=json:pylint-results.json
+        run: pylint --disable=C0111,C0103 src/ --output-format=json:pylint-results.json
         continue-on-error: true
-        
+
       - name: Upload Pylint results
         uses: actions/upload-artifact@v4
         with:

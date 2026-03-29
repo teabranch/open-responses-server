@@ -52,8 +52,10 @@ IGNORE_FLAGS=(
 
 echo "Running markdownlint-cli2 on ${#FILES[@]} pattern(s)..."
 # shellcheck disable=SC2086
+set +e
 markdownlint-cli2 $FIX_FLAG $CONFIG_FLAG "${FILES[@]}" "${IGNORE_FLAGS[@]}"
 EXIT_CODE=$?
+set -e
 
 if [ $EXIT_CODE -eq 0 ]; then
     echo "All files pass."

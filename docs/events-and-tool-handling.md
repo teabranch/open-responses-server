@@ -18,7 +18,7 @@ All events are emitted as `data: {JSON}\n\n` lines over an SSE stream.
 | `response.created` | `ResponseCreated` | Always first | Full `ResponseModel` (empty output, status=in_progress) |
 | `response.in_progress` | `ResponseInProgress` | After created; again after each new tool call detected | Full `ResponseModel` snapshot |
 | `response.output_text.delta` | `OutputTextDelta` | Per text chunk from LLM | `item_id`, `output_index`, `delta` (text fragment) |
-| `response.tool_calls.created` | `ToolCallsCreated` | When a new tool call arrives with a function name | `item_id`, `output_index`, `tool_call` dict |
+| `response.tool_calls.created` | `ToolCallsCreated` | Legacy `delta.function_call` path only: when a new tool call arrives with a function name (not emitted for modern `delta.tool_calls` — that path emits `response.in_progress` instead) | `item_id`, `output_index`, `tool_call` dict |
 | `response.function_call_arguments.delta` | `ToolCallArgumentsDelta` | Per arguments JSON fragment | `item_id`, `output_index`, `delta` (JSON fragment) |
 | `response.function_call_arguments.done` | `ToolCallArgumentsDone` | When finish_reason triggers finalization | `id`, `output_index`, complete `arguments` string |
 | `response.completed` | `ResponseCompleted` | Terminal event for every response | Full `ResponseModel` with status=completed |
@@ -52,8 +52,7 @@ response.created
 response.in_progress
 
 ── per tool call ──────────────────────────────────
-response.tool_calls.created          (first delta with function name)
-response.in_progress                 (output now contains the tool call)
+response.in_progress                 (first delta with function name; output now contains the tool call)
 response.function_call_arguments.delta  (repeated per argument chunk)
 ───────────────────────────────────────────────────
 
@@ -118,9 +117,13 @@ Emitted if an exception occurs at any point during stream processing.
 ### How tools are classified
 
 `mcp_manager.is_mcp_tool(tool_name)` checks against the cached
-`mcp_functions_cache` list. Classification happens at two points:
+`mcp_functions_cache` list. In the streaming implementation, tools are
+effectively classified at two moments:
 
-1. **When `tool_calls.created` is emitted** — sets the output item status:
+1. **When a new tool call is first detected in the stream** — as soon as the
+   tool name appears in the delta, the corresponding output item is appended
+   to `response.output` and a `response.in_progress` snapshot is emitted.
+   At this point the output item status is set:
    - MCP tool: `status="in_progress"`
    - Non-MCP tool: `status="ready"`
 2. **When `finish_reason` triggers execution** — determines whether to execute

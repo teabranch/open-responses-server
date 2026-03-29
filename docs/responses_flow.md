@@ -83,9 +83,8 @@ sequenceDiagram
 
         loop LLM streams back tool call
             LLM-->>RS: chunk: tool_calls delta (name)
-            RS->>RS: Detects new tool call
-            RS-->>Client: response.tool_calls.created (ToolCallsCreated)
-            RS-->>Client: response.in_progress (ResponseInProgress)
+            RS->>RS: Detects new tool call, appends to response output
+            RS-->>Client: response.in_progress (ResponseInProgress — snapshot with tool call)
 
             LLM-->>RS: chunk: tool_calls delta (arguments fragment)
             RS-->>Client: response.function_call_arguments.delta (ToolCallArgumentsDelta)
@@ -134,10 +133,10 @@ sequenceDiagram
     participant Client
     participant RS as responses_service
 
-    RS-->>Client: response.tool_calls.created (status="ready")
+    RS-->>Client: response.in_progress (snapshot: output contains function_call with status="ready")
     RS-->>Client: response.function_call_arguments.delta (repeated)
     RS-->>Client: response.function_call_arguments.done
-    RS-->>Client: response.completed (output contains function_call with status="ready")
+    RS-->>Client: response.completed
 
     Note over Client: Client executes tool externally
 

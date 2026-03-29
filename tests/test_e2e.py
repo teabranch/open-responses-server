@@ -16,7 +16,7 @@ class TestE2E:
     @pytest.mark.asyncio
     async def test_server_responses_api(self, server_process):
         """Test that the server handles Responses API requests correctly"""
-        process, base_url = await server_process.__anext__()
+        process, base_url = server_process
         
         # Test request data
         request_data = {
@@ -51,7 +51,7 @@ class TestE2E:
     @pytest.mark.asyncio
     async def test_server_streaming_responses(self, server_process):
         """Test that the server handles streaming Responses API requests correctly"""
-        process, base_url = await server_process.__anext__()
+        process, base_url = server_process
         
         # Test request data for streaming
         request_data = {
@@ -89,7 +89,7 @@ class TestE2E:
     @pytest.mark.asyncio
     async def test_proxy_functionality(self, server_process):
         """Test the proxy functionality to pass through requests to other endpoints"""
-        process, base_url = await server_process.__anext__()
+        process, base_url = server_process
         
         # Skip the actual proxy test since we don't have a real backend
         # Just check that the endpoint exists

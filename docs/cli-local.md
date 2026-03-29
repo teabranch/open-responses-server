@@ -1,3 +1,9 @@
+---
+title: CLI Usage
+nav_order: 5
+---
+
+# CLI Usage
 
 To run the `cli.py` script and use it to manage the `server.py`, follow these steps:
 

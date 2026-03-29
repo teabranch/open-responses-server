@@ -126,9 +126,12 @@ class MCPServer:
         transport_type = self.config.get("type", "stdio")
 
         if transport_type == "stdio":
-            command = shutil.which(self.config.get("command")) if self.config.get("command") != "npx" else shutil.which("npx")
+            raw_command = self.config.get("command")
+            if not isinstance(raw_command, str) or not raw_command.strip():
+                raise ValueError(f"MCP server '{self.name}' with type 'stdio' requires a non-empty 'command' string")
+            command = shutil.which("npx" if raw_command == "npx" else raw_command)
             if not command:
-                raise ValueError(f"Invalid command for MCP server {self.name}")
+                raise ValueError(f"Command '{raw_command}' not found for MCP server '{self.name}'")
             params = StdioServerParameters(
                 command=command,
                 args=self.config.get("args", []),
@@ -151,7 +154,7 @@ class MCPServer:
                 raise ValueError(f"MCP server '{self.name}' with type 'streamable-http' requires a 'url'")
             headers = self.config.get("headers")
             transport = await self.exit_stack.enter_async_context(streamablehttp_client(url=url, headers=headers))
-            read, write, _get_session_id = transport
+            read, write = transport[0], transport[1]
 
         else:
             raise ValueError(f"Unknown transport type '{transport_type}' for MCP server '{self.name}'. Supported types: stdio, sse, streamable-http")

@@ -11,6 +11,8 @@ from dotenv import load_dotenv
 # Load environment variables from .env file
 load_dotenv()
 
+from open_responses_server.common.config import API_ADAPTER_HOST, API_ADAPTER_PORT
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -18,8 +20,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger("otc_cli")
 
-DEFAULT_HOST = os.environ.get("API_ADAPTER_HOST", "0.0.0.0")  # nosec B104 - server must bind all interfaces
-DEFAULT_PORT = os.environ.get("API_ADAPTER_PORT", "8080")
+DEFAULT_HOST = API_ADAPTER_HOST
+DEFAULT_PORT = str(API_ADAPTER_PORT)
 
 def start_server(host=DEFAULT_HOST, port=DEFAULT_PORT):
     """Starts the FastAPI server."""

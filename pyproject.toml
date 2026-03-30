@@ -32,6 +32,7 @@ classifiers = [
 [project.optional-dependencies]
 dev = [
     "pytest>=6.0",
+    "pytest-asyncio>=0.21.0",
     "black>=21.0",
     "flake8>=3.9",
     "twine>=6.1.0",
@@ -42,7 +43,6 @@ dev = [
     "flake8-bandit>=4.1.1",
     "flake8-bugbear>=23.7.10",
     "uvicorn>=0.32.1",
-
 ]
 
 [project.scripts]

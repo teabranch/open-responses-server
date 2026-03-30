@@ -524,15 +524,7 @@ class TestHandleStreamingRequest:
         assert parsed["error"] == "Max tool call iterations reached"
 
     async def test_exception_returns_error_stream(self):
-        """When an exception occurs during the POST, return error StreamingResponse.
-
-        NOTE: The source code has a known Python scoping issue at line 185-186 --
-        the ``error_stream`` generator captures ``e`` from an ``except`` block,
-        but Python 3 deletes ``e`` after the block exits. Because the generator
-        is lazy, iterating it after the block raises ``NameError``. This test
-        validates that the response type and status code are correct even though
-        consuming the body triggers the scoping bug.
-        """
+        """When an exception occurs during the POST, return error StreamingResponse."""
         mock_client = AsyncMock()
         mock_client.post = AsyncMock(side_effect=Exception("network error"))
 
@@ -543,9 +535,8 @@ class TestHandleStreamingRequest:
         assert isinstance(result, StreamingResponse)
         assert result.status_code == 500
 
-        # Consuming the body hits the scoping bug in the source code
-        with pytest.raises(NameError):
-            await _collect_streaming_body(result)
+        body = await _collect_streaming_body(result)
+        assert b"network error" in body
 
     async def test_reasoning_null_values_removed_from_non_stream_copy(self):
         """Reasoning with all nulls is removed from the non-stream pre-check request."""

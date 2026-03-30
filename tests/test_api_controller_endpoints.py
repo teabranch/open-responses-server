@@ -12,10 +12,11 @@ from open_responses_server.api_controller import app
 
 class TestResponsesEndpoint:
     @pytest.fixture
-    def client(self):
+    def client(self, mock_mcp_manager_fixture, mock_llm_client_fixture):
+        # Ensure mocks are applied before app startup runs via TestClient.
         return TestClient(app)
 
-    def test_responses_streaming_no_mcp(self, client, mock_mcp_manager_fixture, mock_llm_client_fixture):
+    def test_responses_streaming_no_mcp(self, client, mock_llm_client_fixture):
         """POST /responses streaming with no MCP tools."""
         mock_client = mock_llm_client_fixture
 
@@ -77,7 +78,7 @@ class TestResponsesEndpoint:
         response = client.post("/responses", json=request_data)
         assert response.status_code == 200
 
-    def test_responses_non_streaming(self, client, mock_mcp_manager_fixture):
+    def test_responses_non_streaming(self, client):
         """POST /responses non-streaming logs unsupported and returns 200."""
         request_data = {
             "model": "test-model",
@@ -88,7 +89,7 @@ class TestResponsesEndpoint:
         # Non-streaming returns 200 with None body
         assert response.status_code == 200
 
-    def test_responses_exception_returns_500(self, client, mock_mcp_manager_fixture):
+    def test_responses_exception_returns_500(self, client):
         """POST /responses with exception raises 500."""
         with patch("open_responses_server.api_controller.convert_responses_to_chat_completions",
                    side_effect=Exception("conversion error")):
@@ -100,7 +101,7 @@ class TestResponsesEndpoint:
             response = client.post("/responses", json=request_data)
             assert response.status_code == 500
 
-    def test_responses_input_logging_variants(self, client, mock_mcp_manager_fixture):
+    def test_responses_input_logging_variants(self, client):
         """POST /responses with various input types for logging coverage."""
         request_data = {
             "model": "test-model",
@@ -119,7 +120,7 @@ class TestResponsesEndpoint:
         response = client.post("/responses", json=request_data)
         assert response.status_code == 200
 
-    def test_responses_stream_error_from_llm(self, client, mock_mcp_manager_fixture, mock_llm_client_fixture):
+    def test_responses_stream_error_from_llm(self, client, mock_llm_client_fixture):
         """POST /responses streaming when LLM returns error status."""
         mock_client = mock_llm_client_fixture
 
@@ -140,7 +141,7 @@ class TestResponsesEndpoint:
         assert response.status_code == 200  # StreamingResponse itself is 200, error is in SSE data
 
     def test_responses_streaming_with_existing_tools(self, client, mock_mcp_manager_fixture, mock_llm_client_fixture):
-        """POST /responses with existing tools and MCP tools - no duplicates."""
+        """POST /responses with existing user tools and MCP tools - no duplicates."""
         mock_mgr = mock_mcp_manager_fixture
         mock_mgr.mcp_functions_cache = [
             {"name": "mcp_tool", "description": "MCP", "parameters": {}},
@@ -174,10 +175,11 @@ class TestResponsesEndpoint:
 
 class TestChatCompletionsEndpoint:
     @pytest.fixture
-    def client(self):
+    def client(self, mock_mcp_manager_fixture, mock_llm_client_fixture):
+        # Ensure mocks are applied before app startup runs via TestClient.
         return TestClient(app)
 
-    def test_chat_completions_delegates(self, client, mock_mcp_manager_fixture, mock_llm_client_fixture):
+    def test_chat_completions_delegates(self, client, mock_llm_client_fixture):
         """POST /v1/chat/completions delegates to handle_chat_completions."""
         mock_client = mock_llm_client_fixture
         mock_response = MagicMock()
@@ -199,7 +201,8 @@ class TestChatCompletionsEndpoint:
 
 class TestProxyEndpoint:
     @pytest.fixture
-    def client(self):
+    def client(self, mock_mcp_manager_fixture, mock_llm_client_fixture):
+        # Ensure mocks are applied before app startup runs via TestClient.
         return TestClient(app)
 
     def test_proxy_get_request(self, client, mock_llm_client_fixture):

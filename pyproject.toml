@@ -62,7 +62,6 @@ source = ["open_responses_server"]
 omit = [
     "src/open_responses_server/server.py",
     "src/open_responses_server/mcp-chatbot-client.py",
-    "src/open_responses_server/server_entrypoint.py",
     "src/open_responses_server/is_mcp_tool.py",
 ]
 

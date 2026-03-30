@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
   id-token: write
 
 concurrency:
@@ -21,6 +21,10 @@ jobs:
   create-release:
     if: github.event_name != 'release'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      created: ${{ steps.create.outputs.created }}
 
     steps:
       - uses: actions/checkout@v4
@@ -51,22 +55,26 @@ jobs:
           if git rev-parse "${{ steps.version.outputs.tag }}" >/dev/null 2>&1; then
             git push origin ":refs/tags/${{ steps.version.outputs.tag }}" || true
           fi
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create GitHub Release
+        id: create
         if: steps.check.outputs.exists == 'false'
         run: |
           gh release create "${{ steps.version.outputs.tag }}" \
             --title "Release ${{ steps.version.outputs.tag }}" \
             --generate-notes \
             --target "${{ github.sha }}"
+          echo "created=true" >> "$GITHUB_OUTPUT"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   release-build:
     needs: [create-release]
-    if: always() && (needs.create-release.result == 'success' || needs.create-release.result == 'skipped')
+    if: >-
+      always() && (
+        needs.create-release.result == 'skipped' ||
+        needs.create-release.outputs.created == 'true'
+      )
     runs-on: ubuntu-latest
 
     steps:

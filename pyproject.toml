@@ -58,11 +58,7 @@ asyncio_mode = "auto"
 
 [tool.coverage.run]
 source = ["open_responses_server"]
-omit = [
-    "src/open_responses_server/server.py",
-    "src/open_responses_server/mcp-chatbot-client.py",
-    "src/open_responses_server/is_mcp_tool.py",
-]
+omit = []
 
 [tool.coverage.report]
 show_missing = true

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
-import subprocess
+import subprocess  # nosec B404 - subprocess needed for CLI server management
 import os
 import json
 import sys
@@ -11,6 +11,8 @@ from dotenv import load_dotenv
 # Load environment variables from .env file
 load_dotenv()
 
+from open_responses_server.common.config import API_ADAPTER_HOST, API_ADAPTER_PORT
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -18,8 +20,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger("otc_cli")
 
-DEFAULT_HOST = os.environ.get("API_ADAPTER_HOST", "0.0.0.0")
-DEFAULT_PORT = os.environ.get("API_ADAPTER_PORT", "8080")
+DEFAULT_HOST = API_ADAPTER_HOST
+DEFAULT_PORT = str(API_ADAPTER_PORT)
 
 def start_server(host=DEFAULT_HOST, port=DEFAULT_PORT):
     """Starts the FastAPI server."""
@@ -38,7 +40,7 @@ def start_server(host=DEFAULT_HOST, port=DEFAULT_PORT):
         logger.error(f"Error importing server module: {e}")
         logger.info("Trying to start server using subprocess...")
         try:
-            subprocess.run(
+            subprocess.run(  # nosec B603 B607 - trusted command with controlled arguments
                 ["uvicorn", "open_responses_server.server_entrypoint:app", "--host", host, "--port", str(port)],
                 check=True
             )

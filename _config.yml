@@ -52,7 +52,6 @@ exclude:
   - demo/
   - examples/
   - pyproject.toml
-  - setup.py
   - uv.lock
   - run_tests.sh
   - release.py

@@ -91,3 +91,7 @@ Version lives in `src/open_responses_server/version.py` as `__version__` and is 
 ## CLI Entry Point
 
 The `otc` command is defined in `pyproject.toml` pointing to `open_responses_server.cli:main`. Commands: `start`, `configure`, `help`.
+
+## PR Workflow
+
+When a plan is ready and implementation is complete, create a PR and run the `/pr-review` skill. The PR review workflow should: wait 5 minutes for automated reviewers to run, then check every 2 minutes for completion before fetching and addressing review comments.

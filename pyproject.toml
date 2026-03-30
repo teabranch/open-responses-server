@@ -57,6 +57,19 @@ where = ["src"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 
+[tool.coverage.run]
+source = ["open_responses_server"]
+omit = [
+    "src/open_responses_server/server.py",
+    "src/open_responses_server/mcp-chatbot-client.py",
+    "src/open_responses_server/server_entrypoint.py",
+    "src/open_responses_server/is_mcp_tool.py",
+]
+
+[tool.coverage.report]
+show_missing = true
+fail_under = 80
+
 [project.urls]
 Homepage = "https://github.com/teabranch/open-responses-server"
 Documentation = "https://github.com/teabranch/open-responses-server"

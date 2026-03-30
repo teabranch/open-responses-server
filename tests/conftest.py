@@ -240,4 +240,96 @@ def mock_httpx_client(monkeypatch):
             pass
     
     monkeypatch.setattr("httpx.AsyncClient", MockAsyncClient)
-    return MockAsyncClient() 
+    return MockAsyncClient()
+
+
+class MockStreamResponse:
+    """Mock streaming response with aiter_lines() for testing process_chat_completions_stream."""
+    def __init__(self, lines):
+        self._lines = lines
+        self.status_code = 200
+
+    async def aiter_lines(self):
+        for line in self._lines:
+            yield line
+
+    async def aread(self):
+        return b'{}'
+
+    async def aiter_bytes(self):
+        for line in self._lines:
+            yield (line + "\n\n").encode()
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *args):
+        pass
+
+
+@pytest.fixture
+def mock_stream_response():
+    """Factory fixture to create MockStreamResponse instances."""
+    def _make(lines):
+        return MockStreamResponse(lines)
+    return _make
+
+
+@pytest.fixture(autouse=True)
+def clean_conversation_history():
+    """Clear conversation history between tests."""
+    from open_responses_server.responses_service import conversation_history
+    conversation_history.clear()
+    yield
+    conversation_history.clear()
+
+
+@pytest.fixture
+def mock_mcp_manager_fixture(monkeypatch):
+    """Patch the mcp_manager singleton with configurable mocks."""
+    from unittest.mock import MagicMock, AsyncMock
+    from open_responses_server.common.mcp_manager import MCPManager
+
+    mock_mgr = MagicMock(spec=MCPManager)
+    mock_mgr.mcp_functions_cache = []
+    mock_mgr.mcp_servers = []
+    mock_mgr._server_tool_mapping = {}
+    mock_mgr.is_mcp_tool = MagicMock(return_value=False)
+    mock_mgr.execute_mcp_tool = AsyncMock(return_value=None)
+    mock_mgr.get_mcp_tools = MagicMock(return_value=[])
+    mock_mgr.startup_mcp_servers = AsyncMock()
+    mock_mgr.shutdown_mcp_servers = AsyncMock()
+
+    # Patch at all import points
+    monkeypatch.setattr("open_responses_server.api_controller.mcp_manager", mock_mgr)
+    monkeypatch.setattr("open_responses_server.responses_service.mcp_manager", mock_mgr)
+    monkeypatch.setattr("open_responses_server.chat_completions_service.mcp_manager", mock_mgr)
+
+    return mock_mgr
+
+
+@pytest.fixture
+def mock_llm_client_fixture(monkeypatch):
+    """Patch LLMClient.get_client to return a configurable mock async client."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    mock_client = MagicMock()
+    mock_client.base_url = "http://mock-llm:8000"
+
+    async def _get_client():
+        return mock_client
+
+    monkeypatch.setattr(
+        "open_responses_server.common.llm_client.LLMClient.get_client",
+        _get_client
+    )
+    monkeypatch.setattr(
+        "open_responses_server.api_controller.LLMClient.get_client",
+        _get_client
+    )
+    monkeypatch.setattr(
+        "open_responses_server.chat_completions_service.LLMClient.get_client",
+        _get_client
+    )
+
+    return mock_client 

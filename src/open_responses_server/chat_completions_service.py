@@ -182,8 +182,9 @@ async def _handle_streaming_request(client: LLMClient, request_data: dict) -> St
 
         except Exception as e:
             logger.error(f"Error during streaming chat completion: {e}")
+            error_msg = str(e)
             async def error_stream():
-                yield f"data: {json.dumps({'error': str(e)})}\n\n".encode()
+                yield f"data: {json.dumps({'error': error_msg})}\n\n".encode()
             return StreamingResponse(error_stream(), media_type="text/event-stream", status_code=500)
     
     async def final_error_stream():

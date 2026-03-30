@@ -32,6 +32,7 @@ classifiers = [
 [project.optional-dependencies]
 dev = [
     "pytest>=6.0",
+    "pytest-asyncio>=0.21.0",
     "black>=21.0",
     "flake8>=3.9",
     "twine>=6.1.0",
@@ -42,7 +43,6 @@ dev = [
     "flake8-bandit>=4.1.1",
     "flake8-bugbear>=23.7.10",
     "uvicorn>=0.32.1",
-
 ]
 
 [project.scripts]
@@ -56,6 +56,18 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+
+[tool.coverage.run]
+source = ["open_responses_server"]
+omit = [
+    "src/open_responses_server/server.py",
+    "src/open_responses_server/mcp-chatbot-client.py",
+    "src/open_responses_server/is_mcp_tool.py",
+]
+
+[tool.coverage.report]
+show_missing = true
+fail_under = 80
 
 [project.urls]
 Homepage = "https://github.com/teabranch/open-responses-server"

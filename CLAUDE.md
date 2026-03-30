@@ -70,7 +70,7 @@ api_controller.py  -- FastAPI app with route definitions, CORS, startup/shutdown
 ```
 
 **Key modules:**
-- `api_controller.py` - Route definitions. `server.py` is a legacy duplicate; `server_entrypoint.py` is the uvicorn entry point that imports from `api_controller`.
+- `api_controller.py` - Route definitions. `server_entrypoint.py` is the uvicorn entry point that imports from `api_controller`.
 - `responses_service.py` - Converts Responses API requests to Chat Completions format (`convert_responses_to_chat_completions`), processes streaming Chat Completions responses back into Responses API SSE events (`process_chat_completions_stream`). Maintains in-memory `conversation_history` keyed by `previous_response_id`.
 - `chat_completions_service.py` - Handles `/v1/chat/completions` with MCP tool injection. Implements a tool-call loop (up to `MAX_TOOL_CALL_ITERATIONS`) for both streaming and non-streaming modes.
 - `common/mcp_manager.py` - `MCPManager` singleton manages MCP server lifecycle (stdio-based), tool discovery/caching with periodic refresh, and tool execution. `MCPServer` wraps individual server sessions.
@@ -84,9 +84,15 @@ api_controller.py  -- FastAPI app with route definitions, CORS, startup/shutdown
 
 All config is via environment variables (see `common/config.py`). The CLI command `otc configure` writes a `.env` file interactively. MCP servers are configured in a JSON file pointed to by `MCP_SERVERS_CONFIG_PATH` (default: `src/open_responses_server/servers_config.json`).
 
-## Version
+## Version & Releasing
 
-Version lives in `src/open_responses_server/version.py` as `__version__` and is read dynamically by setuptools.
+Version lives in `src/open_responses_server/version.py` as `__version__` — the single source of truth. Both `pyproject.toml` (via setuptools dynamic) and `__init__.py` read from it.
+
+**To release a new version:** bump `__version__` in `version.py`, merge to main. The `publish.yml` workflow handles everything automatically:
+1. Detects `version.py` changed on main
+2. Creates a GitHub Release (v{version})
+3. Builds with `uv build` + `twine check`
+4. Publishes to PyPI via trusted publishing (OIDC)
 
 ## CLI Entry Point
 

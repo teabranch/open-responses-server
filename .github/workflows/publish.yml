@@ -1,15 +1,72 @@
-name: Upload Python Package
+name: Publish to PyPI
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - "src/open_responses_server/version.py"
   release:
     types: [published]
+  workflow_dispatch:
 
 permissions:
-  contents: read
-  id-token: write  # Mandatory for trusted publishing
+  contents: write
+  id-token: write
+
+concurrency:
+  group: pypi-publish
+  cancel-in-progress: false
 
 jobs:
+  create-release:
+    if: github.event_name != 'release'
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Extract version
+        id: version
+        run: |
+          VERSION=$(python3 -c "import re; print(re.search(r'__version__\s*=\s*\"([^\"]+)\"', open('src/open_responses_server/version.py').read()).group(1))")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Check if release already exists
+        id: check
+        run: |
+          if gh release view "${{ steps.version.outputs.tag }}" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Delete stale tag if exists
+        if: steps.check.outputs.exists == 'false'
+        run: |
+          if git rev-parse "${{ steps.version.outputs.tag }}" >/dev/null 2>&1; then
+            git push origin ":refs/tags/${{ steps.version.outputs.tag }}" || true
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create GitHub Release
+        if: steps.check.outputs.exists == 'false'
+        run: |
+          gh release create "${{ steps.version.outputs.tag }}" \
+            --title "Release ${{ steps.version.outputs.tag }}" \
+            --generate-notes \
+            --target "${{ github.sha }}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   release-build:
+    needs: [create-release]
+    if: always() && (needs.create-release.result == 'success' || needs.create-release.result == 'skipped')
     runs-on: ubuntu-latest
 
     steps:

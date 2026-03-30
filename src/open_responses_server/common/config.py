@@ -11,7 +11,7 @@ load_dotenv()
 OPENAI_BASE_URL_INTERNAL = os.environ.get("OPENAI_BASE_URL_INTERNAL", "http://localhost:8000")
 OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL", "http://localhost:8080")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "dummy-key")
-API_ADAPTER_HOST = os.environ.get("API_ADAPTER_HOST", "0.0.0.0")
+API_ADAPTER_HOST = os.environ.get("API_ADAPTER_HOST", "0.0.0.0")  # nosec B104 - server must bind all interfaces
 API_ADAPTER_PORT = int(os.environ.get("API_ADAPTER_PORT", "8080"))
 
 # MCP Configuration

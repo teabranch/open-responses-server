@@ -201,8 +201,8 @@ class MCPManager:
         logger.info(f"[MCP-STARTUP] Loading MCP server configuration from: {config_path}")
         
         try:
-            with open(config_path) as f:
-                cfg = json.load(f)
+            content = await asyncio.to_thread(config_path.read_text)
+            cfg = json.loads(content)
             
             server_configs = cfg.get("mcpServers", {})
             logger.info(f"[MCP-STARTUP] Found {len(server_configs)} server configurations: {list(server_configs.keys())}")
@@ -306,7 +306,7 @@ class MCPManager:
                 await self._refresh_mcp_functions()
             except asyncio.CancelledError:
                 logger.info("[MCP-REFRESH] Background refresh task cancelled")
-                break
+                raise
             except Exception as e:
                 logger.error(f"[MCP-REFRESH] Error in background refresh: {e}")
 

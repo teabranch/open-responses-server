@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
-import subprocess
+import subprocess  # nosec B404 - subprocess needed for CLI server management
 import os
 import json
 import sys
@@ -18,7 +18,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("otc_cli")
 
-DEFAULT_HOST = os.environ.get("API_ADAPTER_HOST", "0.0.0.0")
+DEFAULT_HOST = os.environ.get("API_ADAPTER_HOST", "0.0.0.0")  # nosec B104 - server must bind all interfaces
 DEFAULT_PORT = os.environ.get("API_ADAPTER_PORT", "8080")
 
 def start_server(host=DEFAULT_HOST, port=DEFAULT_PORT):
@@ -38,7 +38,7 @@ def start_server(host=DEFAULT_HOST, port=DEFAULT_PORT):
         logger.error(f"Error importing server module: {e}")
         logger.info("Trying to start server using subprocess...")
         try:
-            subprocess.run(
+            subprocess.run(  # nosec B603 B607 - trusted command with controlled arguments
                 ["uvicorn", "open_responses_server.server_entrypoint:app", "--host", host, "--port", str(port)],
                 check=True
             )

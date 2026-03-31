@@ -287,7 +287,7 @@ class SkillManager:
                 if stdout_text:
                     error_msg += f"\nstdout: {stdout_text}"
                 logger.warning(f"[SKILLS-EXEC] {error_msg}")
-                return error_msg
+                raise RuntimeError(error_msg)
 
             logger.info(
                 f"[SKILLS-EXEC] Skill '{skill.name}' script '{script_name}' "

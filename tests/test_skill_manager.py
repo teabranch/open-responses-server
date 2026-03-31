@@ -320,12 +320,12 @@ class TestSkillExecution:
              patch("open_responses_server.common.skill_manager.SKILLS_DIR", str(tmp_path)):
             await mgr.startup_skills()
 
-        result = await mgr.execute_skill_tool(
-            "skill__test-skill",
-            {"script": "fail.sh", "args": ""}
-        )
-        assert "exited with code 1" in result
-        assert "error output" in result
+        with pytest.raises(RuntimeError, match="exited with code 1") as exc_info:
+            await mgr.execute_skill_tool(
+                "skill__test-skill",
+                {"script": "fail.sh", "args": ""}
+            )
+        assert "error output" in str(exc_info.value)
 
     async def test_execute_skill_tool_timeout(self, tmp_path):
         _create_skill_dir(tmp_path, "slow-skill", VALID_SKILL_MD,

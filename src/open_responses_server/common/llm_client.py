@@ -1,5 +1,5 @@
 import httpx
-from .config import OPENAI_BASE_URL_INTERNAL, OPENAI_API_KEY, logger
+from .config import OPENAI_BASE_URL_INTERNAL, OPENAI_API_KEY, STREAM_TIMEOUT, logger
 
 class LLMClient:
     """
@@ -18,7 +18,7 @@ class LLMClient:
             cls._client = httpx.AsyncClient(
                 base_url=OPENAI_BASE_URL_INTERNAL,
                 headers={"Authorization": f"Bearer {OPENAI_API_KEY}"},
-                timeout=httpx.Timeout(120.0)
+                timeout=httpx.Timeout(STREAM_TIMEOUT)
             )
         return cls._client
 

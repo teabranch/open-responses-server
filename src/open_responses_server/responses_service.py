@@ -324,7 +324,9 @@ async def process_chat_completions_stream(response, chat_request=None):
     tool_call_counter = 0
     message_id = f"msg_{uuid.uuid4().hex}"
     output_text_content = ""  # Track the full text content for logging
-    logger.info(f"Processing streaming response from chat.completions API response_id {response_id}; message_id {message_id}")
+    request_start_time = time.time()
+    last_chunk_time = request_start_time
+    logger.info(f"[STREAM-START] response_id={response_id} message_id={message_id}")
     
     # Create and yield the initial response.created event
     response_obj = ResponseModel(
@@ -354,12 +356,25 @@ async def process_chat_completions_stream(response, chat_request=None):
     try:
         async for chunk in response.aiter_lines():
             chunk_counter += 1
+            now = time.time()
+            chunk_gap = now - last_chunk_time
+            last_chunk_time = now
+            if chunk_gap > 2.0:
+                logger.info(
+                    f"[STREAM-TIMING] response_id={response_id} "
+                    f"chunk_gap={chunk_gap:.1f}s chunk={chunk_counter}"
+                )
             if not chunk.strip():
                 continue
                 
             # Handle [DONE] message
             if chunk.strip() == "data: [DONE]" or chunk.strip() == "[DONE]":
-                logger.info(f"Received [DONE] message after {chunk_counter} chunks (status: {response_obj.status})")
+                total_time = time.time() - request_start_time
+                logger.info(
+                    f"[STREAM-DONE] response_id={response_id} "
+                    f"chunks={chunk_counter} total_time={total_time:.1f}s "
+                    f"status={response_obj.status}"
+                )
                 
                 # If we haven't already completed the response, do it now
                 if response_obj.status != "completed":
@@ -544,6 +559,7 @@ async def process_chat_completions_stream(response, chat_request=None):
                                 type="response.output_text.delta",
                                 item_id=message_id,
                                 output_index=0,
+                                content_index=0,
                                 delta=content_delta
                             )
                             
@@ -595,6 +611,7 @@ async def process_chat_completions_stream(response, chat_request=None):
                                         type="response.output_text.delta",
                                         item_id=tool_call["id"],
                                         output_index=0,
+                                        content_index=0,
                                         delta=text
                                     )
                                     yield f"data: {json.dumps(text_event.dict())}\n\n"
@@ -725,10 +742,11 @@ async def process_chat_completions_stream(response, chat_request=None):
                                         type="response.output_text.delta",
                                         item_id=tool_call["id"],
                                         output_index=0,
+                                        content_index=0,
                                         delta=text
                                     )
                                     yield f"data: {json.dumps(text_event.dict())}\n\n"
-                                    
+
                                     logger.info(f"[TOOL-CALLS-FINISH] Added function_call_output for MCP tool '{tool_call['function']['name']}'")
                                     
                                 else:
@@ -885,7 +903,12 @@ async def process_chat_completions_stream(response, chat_request=None):
                 continue
     
     except Exception as e:
-        logger.error(f"Error processing streaming response: {str(e)}")
+        total_time = time.time() - request_start_time
+        logger.error(
+            f"[STREAM-ERROR] response_id={response_id} "
+            f"error={str(e)} total_time={total_time:.1f}s "
+            f"chunks={chunk_counter}"
+        )
         # Emit a completion event if we haven't already
         if response_obj.status != "completed":
             response_obj.status = "completed"

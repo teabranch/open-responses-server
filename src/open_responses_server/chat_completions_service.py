@@ -4,6 +4,7 @@ from fastapi.responses import StreamingResponse, Response, JSONResponse
 from open_responses_server.common.llm_client import LLMClient
 from open_responses_server.common.config import logger, OPENAI_BASE_URL_INTERNAL, OPENAI_API_KEY, MAX_TOOL_CALL_ITERATIONS, STREAM_TIMEOUT
 from open_responses_server.common.mcp_manager import mcp_manager, serialize_tool_result
+from open_responses_server.common.skill_manager import skill_manager
 
 async def _handle_non_streaming_request(client: LLMClient, request_data: dict):
     """Handles a non-streaming chat completions request with potential tool calls."""
@@ -59,9 +60,19 @@ async def _handle_non_streaming_request(client: LLMClient, request_data: dict):
                         except Exception as e:
                             logger.error(f"[CHAT-COMPLETIONS-NON-STREAM] ✗ Error executing tool {tool_name}: {e}")
                             tool_content = json.dumps({"error": f"Error executing tool: {e}"})
+                    elif skill_manager.is_skill_tool(tool_name):
+                        logger.info(f"[CHAT-COMPLETIONS-NON-STREAM] Executing skill tool: {tool_name}")
+                        try:
+                            arguments = json.loads(function_call.get("arguments", "{}"))
+                            result = await skill_manager.execute_skill_tool(tool_name, arguments)
+                            logger.info(f"[CHAT-COMPLETIONS-NON-STREAM] ✓ Skill tool {tool_name} executed successfully")
+                            tool_content = result
+                        except Exception as e:
+                            logger.error(f"[CHAT-COMPLETIONS-NON-STREAM] ✗ Error executing skill tool {tool_name}: {e}")
+                            tool_content = json.dumps({"error": f"Error executing skill tool: {e}"})
                     else:
-                        logger.warning(f"[CHAT-COMPLETIONS-NON-STREAM] Tool '{tool_name}' is not a registered MCP tool.")
-                        tool_content = json.dumps({"error": f"Tool '{tool_name}' is not a registered MCP tool."})
+                        logger.warning(f"[CHAT-COMPLETIONS-NON-STREAM] Tool '{tool_name}' is not a registered server tool.")
+                        tool_content = json.dumps({"error": f"Tool '{tool_name}' is not a registered server tool."})
 
                     tool_results_messages.append({
                         "tool_call_id": tool_call_id,
@@ -131,15 +142,23 @@ async def _handle_streaming_request(client: LLMClient, request_data: dict) -> St
                             result = await mcp_manager.execute_mcp_tool(tool_name, arguments)
                             logger.info(f"[CHAT-COMPLETIONS-STREAM] ✓ Tool {tool_name} executed successfully")
                             logger.debug(f"[CHAT-COMPLETIONS-STREAM] Tool result: {result}")
-                            #result is serlized as: "meta=None content=[TextContent(type='text', text="[{'name': 'listings'}]", annotations=None)] isError=False"
-                            # so we need to convert it to json
                             tool_content = serialize_tool_result(result)
                         except Exception as e:
                             logger.error(f"[CHAT-COMPLETIONS-STREAM] ✗ Error executing tool {tool_name}: {e}")
                             tool_content = json.dumps({"error": f"Error executing tool: {e}"})
+                    elif skill_manager.is_skill_tool(tool_name):
+                        logger.info(f"[CHAT-COMPLETIONS-STREAM] Executing skill tool: {tool_name}")
+                        try:
+                            arguments = json.loads(function_call.get("arguments", "{}"))
+                            result = await skill_manager.execute_skill_tool(tool_name, arguments)
+                            logger.info(f"[CHAT-COMPLETIONS-STREAM] ✓ Skill tool {tool_name} executed successfully")
+                            tool_content = result
+                        except Exception as e:
+                            logger.error(f"[CHAT-COMPLETIONS-STREAM] ✗ Error executing skill tool {tool_name}: {e}")
+                            tool_content = json.dumps({"error": f"Error executing skill tool: {e}"})
                     else:
-                        logger.warning(f"[CHAT-COMPLETIONS-STREAM] Tool '{tool_name}' is not a registered MCP tool.")
-                        tool_content = json.dumps({"error": f"Tool '{tool_name}' is not a registered MCP tool."})
+                        logger.warning(f"[CHAT-COMPLETIONS-STREAM] Tool '{tool_name}' is not a registered server tool.")
+                        tool_content = json.dumps({"error": f"Tool '{tool_name}' is not a registered server tool."})
 
                     tool_results_messages.append({
                         "tool_call_id": tool_call_id,

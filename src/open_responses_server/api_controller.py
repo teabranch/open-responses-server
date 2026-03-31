@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from open_responses_server.common.config import logger, HEARTBEAT_INTERVAL, STREAM_TIMEOUT
 from open_responses_server.common.llm_client import startup_llm_client, shutdown_llm_client, LLMClient
 from open_responses_server.common.mcp_manager import mcp_manager
+from open_responses_server.common.skill_manager import skill_manager
 from open_responses_server.responses_service import convert_responses_to_chat_completions, process_chat_completions_stream
 from open_responses_server.chat_completions_service import handle_chat_completions
 
@@ -75,6 +76,7 @@ async def startup_event():
     """Application startup event handler."""
     await startup_llm_client()
     await mcp_manager.startup_mcp_servers()
+    await skill_manager.startup_skills()
     logger.info("API Controller startup complete.")
 
 @app.on_event("shutdown")
@@ -82,6 +84,7 @@ async def shutdown_event():
     """Application shutdown event handler."""
     await shutdown_llm_client()
     await mcp_manager.shutdown_mcp_servers()
+    await skill_manager.shutdown_skills()
     logger.info("API Controller shutdown complete.")
 
 
@@ -156,7 +159,22 @@ async def create_response(request: Request):
             logger.info(f"[TOOL-INJECT] /responses: final tool count: {len(request_data['tools'])}")
         else:
             logger.info("[TOOL-INJECT] /responses: no MCP tools available in cache")
-        
+
+        # Inject cached skill tools into request_data
+        if skill_manager.skill_functions_cache:
+            existing_tools = request_data.get("tools", [])
+            skill_tools = [
+                {"type": "function", "name": f["name"], "description": f.get("description"), "parameters": f.get("parameters", {})}
+                for f in skill_manager.skill_functions_cache
+            ]
+            existing_tool_names = set(tool["name"] for tool in existing_tools if "name" in tool)
+            filtered_skill_tools = [
+                tool for tool in skill_tools
+                if tool["name"] not in existing_tool_names
+            ]
+            request_data["tools"] = existing_tools + filtered_skill_tools
+            logger.info(f"[TOOL-INJECT] /responses: injected {len(filtered_skill_tools)} skill tools")
+
         # Convert request to chat.completions format
         chat_request = convert_responses_to_chat_completions(request_data)
         
@@ -204,7 +222,27 @@ async def create_response(request: Request):
             logger.info(f"[TOOL-CONVERT] /responses: final chat_request tools count: {len(chat_request.get('tools', []))}")
         else:
             logger.info("[TOOL-CONVERT] /responses: no MCP functions cached, sending without MCP tools")
-        
+
+        # Inject skill tools into chat_request
+        if skill_manager.skill_functions_cache:
+            if "tools" not in chat_request:
+                chat_request["tools"] = []
+            existing_tool_names_cr = set()
+            for tool in chat_request["tools"]:
+                if isinstance(tool, dict) and "function" in tool and "name" in tool["function"]:
+                    existing_tool_names_cr.add(tool["function"]["name"])
+                elif isinstance(tool, dict) and "name" in tool:
+                    existing_tool_names_cr.add(tool["name"])
+            skill_tools_added = []
+            for func in skill_manager.skill_functions_cache:
+                if func.get("name") not in existing_tool_names_cr:
+                    chat_request["tools"].append({
+                        "type": "function",
+                        "function": func
+                    })
+                    skill_tools_added.append(func.get("name"))
+            logger.info(f"[TOOL-CONVERT] /responses: added {len(skill_tools_added)} skill tools: {skill_tools_added}")
+
         # Remove tool_choice when no functions/tools are provided
         if not chat_request.get("functions") and not chat_request.get("tools"):
             chat_request.pop("tool_choice", None)
@@ -289,6 +327,24 @@ async def create_response(request: Request):
                             # If we don't have any tools either, remove that key
                             chat_request.pop("tools", None)
                             logger.info("No tools or functions available, sending without them")
+                    # Inject skill tools into streaming chat_request
+                    if skill_manager.skill_functions_cache:
+                        stream_tools = chat_request.get("tools", [])
+                        stream_tool_names = set()
+                        for tool in stream_tools:
+                            if isinstance(tool, dict) and "function" in tool and "name" in tool["function"]:
+                                stream_tool_names.add(tool["function"]["name"])
+                            elif isinstance(tool, dict) and "name" in tool:
+                                stream_tool_names.add(tool["name"])
+                        for func in skill_manager.skill_functions_cache:
+                            if func.get("name") not in stream_tool_names:
+                                stream_tools.append({
+                                    "type": "function",
+                                    "function": func
+                                })
+                        chat_request["tools"] = stream_tools
+                        logger.info(f"[TOOL-INJECT] streaming: injected skill tools into chat_request")
+
                     # Log the initial Chat Completions request payload
                     logger.info(f"Sending Chat Completions request: {json.dumps(chat_request)}")
                     client = await LLMClient.get_client()

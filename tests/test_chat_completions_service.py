@@ -172,7 +172,7 @@ class TestHandleNonStreamingRequest:
         tool_msgs = [m for m in second_call_json["messages"] if m.get("role") == "tool"]
         assert len(tool_msgs) == 1
         parsed = json.loads(tool_msgs[0]["content"])
-        assert "not a registered MCP tool" in parsed["error"]
+        assert "not a registered server tool" in parsed["error"]
 
     @patch("open_responses_server.chat_completions_service.mcp_manager")
     async def test_mcp_tool_execution_failure(self, mock_mcp):
@@ -429,7 +429,7 @@ class TestHandleStreamingRequest:
         tool_msgs = [m for m in second_call_json["messages"] if m.get("role") == "tool"]
         assert len(tool_msgs) == 1
         parsed = json.loads(tool_msgs[0]["content"])
-        assert "not a registered MCP tool" in parsed["error"]
+        assert "not a registered server tool" in parsed["error"]
 
     @patch("open_responses_server.chat_completions_service.mcp_manager")
     async def test_mcp_tool_execution_failure_in_streaming(self, mock_mcp):

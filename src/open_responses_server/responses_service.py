@@ -5,6 +5,7 @@ from typing import Dict, List, Any
 
 from open_responses_server.common.config import logger, MAX_CONVERSATION_HISTORY
 from open_responses_server.common.mcp_manager import mcp_manager, serialize_tool_result
+from open_responses_server.common.skill_manager import skill_manager
 from open_responses_server.models.responses_models import (
     ResponseModel, ResponseCreated, ResponseInProgress, ResponseCompleted,
     ToolCallsCreated, ToolCallArgumentsDelta, ToolCallArgumentsDone, OutputTextDelta
@@ -498,11 +499,13 @@ async def process_chat_completions_stream(response, chat_request=None):
                                         # Log tool call creation
                                         logger.info(f"Tool call created: {tool_call['function']['name']}")
                                         
-                                        # Check if this is an MCP tool or a user-defined tool
+                                        # Check if this is an MCP/skill tool or a user-defined tool
                                         is_mcp = mcp_manager.is_mcp_tool(tool_call["function"]["name"])
-                                        tool_status = "in_progress" if is_mcp else "ready"
-                                        
-                                        logger.info(f"[TOOL-CALL-CREATED] Tool '{tool_call['function']['name']}': is_mcp={is_mcp}, status={tool_status}")
+                                        is_skill = skill_manager.is_skill_tool(tool_call["function"]["name"])
+                                        is_server_tool = is_mcp or is_skill
+                                        tool_status = "in_progress" if is_server_tool else "ready"
+
+                                        logger.info(f"[TOOL-CALL-CREATED] Tool '{tool_call['function']['name']}': is_mcp={is_mcp}, is_skill={is_skill}, status={tool_status}")
                                         
                                         # Add the tool call to the response output in Responses API format
                                         response_obj.output.append({
@@ -581,10 +584,9 @@ async def process_chat_completions_stream(response, chat_request=None):
                                     
                                 logger.info(f"[TOOL-EXECUTE] Processing tool '{tool_name}' with args: {args}")
                                 
-                                # Check if this is an MCP tool or a non-MCP tool
+                                # Check if this is an MCP tool, skill tool, or non-server tool
                                 if mcp_manager.is_mcp_tool(tool_name):
                                     logger.info(f"[TOOL-EXECUTE] Executing MCP tool: {tool_name}")
-                                    # Execute MCP tool
                                     try:
                                         result = await mcp_manager.execute_mcp_tool(tool_name, args)
                                         logger.info(f"[TOOL-EXECUTE] ✓ MCP tool '{tool_name}' executed successfully")
@@ -592,27 +594,49 @@ async def process_chat_completions_stream(response, chat_request=None):
                                     except Exception as e:
                                         result = {"error": str(e)}
                                         logger.error(f"[TOOL-EXECUTE] ✗ MCP tool '{tool_name}' failed: {e}")
-                                    
-                                    # Append as function_call_output
+
                                     response_obj.output.append({
                                         "id": tool_call["id"],
                                         "type": "function_call_output",
                                         "call_id": tool_call["id"],
                                         "output": serialize_tool_result(result)
                                     })
-                                    
-                                    # Convert result to JSON, with fallback to string if needed
+
                                     try:
                                         text = serialize_tool_result(result)
                                     except TypeError:
                                         text = serialize_tool_result(str(result))
-                                        
+
                                     text_event = OutputTextDelta(
                                         type="response.output_text.delta",
                                         item_id=tool_call["id"],
                                         output_index=0,
                                         content_index=0,
                                         delta=text
+                                    )
+                                    yield f"data: {json.dumps(text_event.dict())}\n\n"
+                                elif skill_manager.is_skill_tool(tool_name):
+                                    logger.info(f"[TOOL-EXECUTE] Executing skill tool: {tool_name}")
+                                    try:
+                                        result = await skill_manager.execute_skill_tool(tool_name, args)
+                                        logger.info(f"[TOOL-EXECUTE] ✓ Skill tool '{tool_name}' executed successfully")
+                                    except Exception as e:
+                                        result = f"Error: {e}"
+                                        logger.error(f"[TOOL-EXECUTE] ✗ Skill tool '{tool_name}' failed: {e}")
+
+                                    response_obj.output.append({
+                                        "id": tool_call["id"],
+                                        "type": "function_call_output",
+                                        "call_id": tool_call["id"],
+                                        "output": result
+                                    })
+
+                                    text_event = OutputTextDelta(
+                                        type="response.output_text.delta",
+                                        item_id=tool_call["id"],
+                                        output_index=0,
+                                        content_index=0,
+                                        delta=result
                                     )
                                     yield f"data: {json.dumps(text_event.dict())}\n\n"
                                 else:
@@ -656,9 +680,8 @@ async def process_chat_completions_stream(response, chat_request=None):
                                     }
                                     messages.append(assistant_message)
                                     
-                                    # Add the tool response for immediate tools
-                                    if mcp_manager.is_mcp_tool(tool_name):
-                                        # For MCP tools, also add the tool response
+                                    # Add the tool response for server-side tools (MCP and skills)
+                                    if mcp_manager.is_mcp_tool(tool_name) or skill_manager.is_skill_tool(tool_name):
                                         tool_message = {
                                             "role": "tool",
                                             "tool_call_id": tool_call["id"],
@@ -689,29 +712,39 @@ async def process_chat_completions_stream(response, chat_request=None):
                                 # Log the complete tool call arguments
                                 logger.info(f"[TOOL-CALLS-FINISH] Tool call completed: {tool_call['function']['name']} with arguments: {tool_call['function']['arguments']}")
                                 
-                                # Check if this is an MCP tool or a user-defined tool
+                                # Check if this is an MCP tool, skill tool, or user-defined tool
                                 is_mcp = mcp_manager.is_mcp_tool(tool_call["function"]["name"])
-                                
-                                logger.info(f"[TOOL-CALLS-FINISH] Tool '{tool_call['function']['name']}': is_mcp={is_mcp}")
-                                
-                                # For MCP tools, execute them immediately
-                                if is_mcp:
-                                    logger.info(f"[TOOL-CALLS-FINISH] Executing MCP tool '{tool_call['function']['name']}'")
-                                    
+                                is_skill = skill_manager.is_skill_tool(tool_call["function"]["name"])
+                                is_server_tool = is_mcp or is_skill
+
+                                logger.info(f"[TOOL-CALLS-FINISH] Tool '{tool_call['function']['name']}': is_mcp={is_mcp}, is_skill={is_skill}")
+
+                                # For server-side tools (MCP and skills), execute them immediately
+                                if is_server_tool:
+                                    tool_fn_name = tool_call["function"]["name"]
+                                    logger.info(f"[TOOL-CALLS-FINISH] Executing server tool '{tool_fn_name}'")
+
                                     # Parse the arguments JSON
                                     try:
                                         args = json.loads(tool_call["function"]["arguments"])
                                     except Exception:
                                         args = {}
-                                        
-                                    # Execute MCP tool
-                                    try:
-                                        result = await mcp_manager.execute_mcp_tool(tool_call["function"]["name"], args)
-                                        logger.info(f"[TOOL-CALLS-FINISH] ✓ MCP tool '{tool_call['function']['name']}' executed successfully")
-                                        logger.debug(f"[TOOL-CALLS-FINISH] MCP tool result: {result}")
-                                    except Exception as e:
-                                        result = {"error": str(e)}
-                                        logger.error(f"[TOOL-CALLS-FINISH] ✗ MCP tool '{tool_call['function']['name']}' failed: {e}")
+
+                                    # Route to the appropriate executor
+                                    if is_mcp:
+                                        try:
+                                            result = await mcp_manager.execute_mcp_tool(tool_fn_name, args)
+                                            logger.info(f"[TOOL-CALLS-FINISH] ✓ MCP tool '{tool_fn_name}' executed successfully")
+                                        except Exception as e:
+                                            result = {"error": str(e)}
+                                            logger.error(f"[TOOL-CALLS-FINISH] ✗ MCP tool '{tool_fn_name}' failed: {e}")
+                                    else:
+                                        try:
+                                            result = await skill_manager.execute_skill_tool(tool_fn_name, args)
+                                            logger.info(f"[TOOL-CALLS-FINISH] ✓ Skill tool '{tool_fn_name}' executed successfully")
+                                        except Exception as e:
+                                            result = f"Error: {e}"
+                                            logger.error(f"[TOOL-CALLS-FINISH] ✗ Skill tool '{tool_fn_name}' failed: {e}")
                                     
                                     # Emit the arguments.done event
                                     done_event = ToolCallArgumentsDone(
@@ -811,9 +844,9 @@ async def process_chat_completions_stream(response, chat_request=None):
                                 }
                                 messages.append(assistant_message)
                                 
-                                # Add tool responses for executed MCP tools
+                                # Add tool responses for executed server tools (MCP and skills)
                                 for tool_call in tool_calls.values():
-                                    if mcp_manager.is_mcp_tool(tool_call["function"]["name"]):
+                                    if mcp_manager.is_mcp_tool(tool_call["function"]["name"]) or skill_manager.is_skill_tool(tool_call["function"]["name"]):
                                         # Find the result in the response output
                                         for output_item in response_obj.output:
                                             if (output_item.get("type") == "function_call_output" and 

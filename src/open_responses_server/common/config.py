@@ -31,7 +31,6 @@ SKILLS_ENABLED = os.environ.get("SKILLS_ENABLED", "false").lower() in ("true", "
 SKILLS_DIR = os.environ.get("SKILLS_DIR", "")
 SKILLS_EXEC_TIMEOUT = int(os.environ.get("SKILLS_EXEC_TIMEOUT", "30"))
 
-
 # --- Logging Configuration ---
 
 def setup_logging():

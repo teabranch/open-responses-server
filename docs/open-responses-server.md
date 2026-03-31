@@ -27,8 +27,6 @@ a tool-call execution loop, plus a generic proxy for all other endpoints.
 | `server_entrypoint.py` | Uvicorn entry point (imports `app` from `api_controller`) |
 | `cli.py` | `otc` CLI: `start`, `configure`, `help` commands |
 | `version.py` | `__version__` string, read dynamically by setuptools |
-| `server.py` | Legacy duplicate of api_controller (not imported by active code) |
-| `is_mcp_tool.py` | Standalone utility, superseded by `MCPManager.is_mcp_tool()` |
 
 ## Request Routing
 
@@ -50,7 +48,7 @@ Client
   │    → Tool-call loop (up to MAX_TOOL_CALL_ITERATIONS)
   │    → Final response streamed or returned as JSON
   │
-  ├─ GET /health → {"status": "ok"}
+  ├─ GET /health → {"status": "ok", "adapter": "running"}
   ├─ GET /       → {"message": "Open Responses Server is running."}
   │
   └─ GET/POST /{path} (catch-all proxy)
@@ -71,28 +69,45 @@ All configuration is via environment variables, loaded from `.env` via
 | `API_ADAPTER_HOST` | `0.0.0.0` | Server bind address |
 | `API_ADAPTER_PORT` | `8080` | Server port |
 | `MCP_TOOL_REFRESH_INTERVAL` | `10` | Seconds between MCP tool cache refreshes |
-| `MCP_SERVERS_CONFIG_PATH` | `src/open_responses_server/servers_config.json` | Path to MCP servers JSON config |
+| `MCP_SERVERS_CONFIG_PATH` | `src/open_responses_server/servers_config.json` | Path to MCP servers JSON config (use absolute path when pip-installed) |
 | `MAX_CONVERSATION_HISTORY` | `100` | Max stored conversation entries |
 | `MAX_TOOL_CALL_ITERATIONS` | `25` | Max tool-call loop iterations |
+| `STREAM_TIMEOUT` | `120.0` | HTTP timeout (seconds) for streaming requests |
+| `HEARTBEAT_INTERVAL` | `15.0` | SSE keepalive interval (seconds) |
+| `LOG_LEVEL` | `INFO` | Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL) |
+| `LOG_FILE_PATH` | `./log/api_adapter.log` | Path to log file |
 
 ### MCP Server Configuration
 
-The JSON file at `MCP_SERVERS_CONFIG_PATH` defines MCP servers:
+The JSON file at `MCP_SERVERS_CONFIG_PATH` defines MCP servers. Three transport
+types are supported: `stdio` (default), `sse`, and `streamable-http`.
 
 ```json
 {
   "mcpServers": {
-    "server-name": {
-      "command": "executable",
-      "args": ["arg1", "arg2"],
+    "stdio-server": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
       "env": {"KEY": "value"}
+    },
+    "sse-server": {
+      "type": "sse",
+      "url": "http://example.com/sse",
+      "headers": {"Authorization": "Bearer token"}
+    },
+    "http-server": {
+      "type": "streamable-http",
+      "url": "http://example.com/mcp",
+      "headers": {"Authorization": "Bearer token"}
     }
   }
 }
 ```
 
-Each server is started as a subprocess via `stdio_client` from the `mcp`
-library.
+The `type` field defaults to `stdio` if omitted. Stdio servers use `command`,
+`args`, and `env` fields. SSE and streamable-http servers use `url` and optional
+`headers` fields.
 
 ## Startup / Shutdown Lifecycle
 

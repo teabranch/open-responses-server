@@ -277,6 +277,20 @@ When processing Responses API input with `function_call_output` items
 
 ## Pydantic Models Reference
 
+## Connection Keepalive (Heartbeat)
+
+When the backend LLM is slow to respond, the server sends SSE comment lines
+(`: heartbeat\n\n`) at the interval configured by `HEARTBEAT_INTERVAL`
+(default: 15 seconds). This prevents proxies and load balancers from closing
+idle connections.
+
+Heartbeats are standard SSE comments and should be ignored by compliant clients.
+The mechanism is implemented by `_with_heartbeat()` in `api_controller.py`,
+which wraps the response stream and injects heartbeat sentinels during idle
+periods.
+
+## Pydantic Models
+
 Defined in `src/open_responses_server/models/responses_models.py`.
 
 ### Core Models

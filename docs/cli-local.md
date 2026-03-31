@@ -3,47 +3,55 @@ title: CLI Usage
 nav_order: 5
 ---
 
-# CLI Usage
+## Overview
 
-To run the `cli.py` script and use it to manage the `server.py`, follow these steps:
+The `otc` command is the CLI entry point for Open Responses Server, defined in
+`pyproject.toml` pointing to `open_responses_server.cli:main`.
 
-1. **Install uv and dependences**
-   Assumed you installed dependencies already.
+## Commands
 
-2. **Run the CLI Script**:
-   You can execute the `cli.py` script directly using Python. For example:
-   ```bash
-   uv run src/open_responses_server/cli.py <command>
-   ```
-   Replace `<command>` with one of the available commands (`start`, `configure`, or `help`).
+| Command | Description |
+| --- | --- |
+| `otc start` | Start the FastAPI server |
+| `otc configure` | Interactive configuration wizard (saves to `.env`) |
+| `otc help` | Display help information |
+| `otc --version` | Show version information |
 
-3. **Available Commands**:
-   - `start`: Starts the FastAPI server defined in `server.py`.
-   - `configure`: Allows you to configure server settings like host, port, API URLs, and API key.
-   - `help`: Displays help information about the CLI.
+## Running after installation
 
-4. **Example Usage**:
-   - To start the server:
-     ```bash
-     python src/open_responses_server/cli.py start
-     ```
-   - To configure the server:
-     ```bash
-     python src/open_responses_server/cli.py configure
-     ```
-   - To display help:
-     ```bash
-     python src/open_responses_server/cli.py help
-     ```
+```bash
+# After pip install or uv pip install
+otc start
+otc configure
+otc --version
+```
 
-5. **Make the Script Executable (Optional)**:
-   If you want to run the script without explicitly calling Python, you can make it executable:
-   ```bash
-   chmod +x src/open_responses_server/cli.py
-   ```
-   Then, run it directly:
-   ```bash
-   ./src/open_responses_server/cli.py <command>
-   ```
+## Running from source
 
-Let me know if you need further assistance!
+```bash
+# Using uv
+uv run src/open_responses_server/cli.py start
+
+# Or directly with Python (venv must be activated)
+python src/open_responses_server/cli.py start
+```
+
+## Start command
+
+Starts the FastAPI server via uvicorn. The server binds to the host and port
+defined by `API_ADAPTER_HOST` and `API_ADAPTER_PORT` environment variables
+(defaults: `0.0.0.0:8080`).
+
+```bash
+otc start
+```
+
+## Configure command
+
+Interactive wizard that prompts for host, port, backend URL, external URL, and
+API key. Saves the configuration to a `.env` file in the current directory,
+merging with any existing values.
+
+```bash
+otc configure
+```

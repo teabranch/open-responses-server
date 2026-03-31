@@ -26,26 +26,32 @@ MAX_TOOL_CALL_ITERATIONS = int(os.environ.get("MAX_TOOL_CALL_ITERATIONS", "25"))
 STREAM_TIMEOUT = float(os.environ.get("STREAM_TIMEOUT", "120.0"))
 HEARTBEAT_INTERVAL = float(os.environ.get("HEARTBEAT_INTERVAL", "15.0"))
 
+# Logging Configuration
+LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").upper()
+LOG_FILE_PATH = os.environ.get("LOG_FILE_PATH", "./log/api_adapter.log")
 
-# --- Logging Configuration ---
+
+# --- Logging Setup ---
 
 def setup_logging():
     """Configures the global logger."""
-    log_dir = "./log"
-    if not os.path.exists(log_dir):
+    log_dir = os.path.dirname(LOG_FILE_PATH)
+    if log_dir and not os.path.exists(log_dir):
         os.makedirs(log_dir)
-        
+
+    numeric_level = getattr(logging, LOG_LEVEL, logging.INFO)
     logging.basicConfig(
-        level=logging.INFO,
+        level=numeric_level,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
         handlers=[
-            logging.FileHandler(os.path.join(log_dir, "api_adapter.log")),
+            logging.FileHandler(LOG_FILE_PATH),
             logging.StreamHandler()
         ]
     )
     logger = logging.getLogger("api_adapter")
     logger.info("Logging configured.")
     return logger
+
 
 # Initialize logging
 logger = setup_logging()
@@ -61,3 +67,5 @@ logger.info(f"  MAX_CONVERSATION_HISTORY: {MAX_CONVERSATION_HISTORY}")
 logger.info(f"  MAX_TOOL_CALL_ITERATIONS: {MAX_TOOL_CALL_ITERATIONS}")
 logger.info(f"  STREAM_TIMEOUT: {STREAM_TIMEOUT}")
 logger.info(f"  HEARTBEAT_INTERVAL: {HEARTBEAT_INTERVAL}")
+logger.info(f"  LOG_LEVEL: {LOG_LEVEL}")
+logger.info(f"  LOG_FILE_PATH: {LOG_FILE_PATH}")

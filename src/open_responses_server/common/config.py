@@ -26,6 +26,10 @@ MAX_TOOL_CALL_ITERATIONS = int(os.environ.get("MAX_TOOL_CALL_ITERATIONS", "25"))
 STREAM_TIMEOUT = float(os.environ.get("STREAM_TIMEOUT", "120.0"))
 HEARTBEAT_INTERVAL = float(os.environ.get("HEARTBEAT_INTERVAL", "15.0"))
 
+# Agent Skills Configuration
+SKILLS_ENABLED = os.environ.get("SKILLS_ENABLED", "false").lower() in ("true", "1", "yes")
+SKILLS_DIR = os.environ.get("SKILLS_DIR", "")
+SKILLS_EXEC_TIMEOUT = int(os.environ.get("SKILLS_EXEC_TIMEOUT", "30"))
 
 # --- Logging Configuration ---
 
@@ -61,3 +65,6 @@ logger.info(f"  MAX_CONVERSATION_HISTORY: {MAX_CONVERSATION_HISTORY}")
 logger.info(f"  MAX_TOOL_CALL_ITERATIONS: {MAX_TOOL_CALL_ITERATIONS}")
 logger.info(f"  STREAM_TIMEOUT: {STREAM_TIMEOUT}")
 logger.info(f"  HEARTBEAT_INTERVAL: {HEARTBEAT_INTERVAL}")
+logger.info(f"  SKILLS_ENABLED: {SKILLS_ENABLED}")
+logger.info(f"  SKILLS_DIR: {SKILLS_DIR}")
+logger.info(f"  SKILLS_EXEC_TIMEOUT: {SKILLS_EXEC_TIMEOUT}")

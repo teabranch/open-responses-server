@@ -128,8 +128,64 @@ If you think this is cool:
 🐛 Open an issue if something’s broken.  
 🤝 Suggest a feature or submit a pull request!  
 
-This is early-stage but already usable in real-world demos.  
+This is early-stage but already usable in real-world demos.
 Let’s build something powerful—together.
+
+## Agent Skills
+
+The server supports **agent skills** -- local script-based tools that the LLM can invoke during conversations. Skills follow the Claude Code skill directory standard. **This feature is off by default.**
+
+### Enabling Skills
+
+Set these environment variables (or add to `.env`):
+
+```bash
+SKILLS_ENABLED=true
+SKILLS_DIR=/path/to/your/skills
+SKILLS_EXEC_TIMEOUT=30   # optional, default 30 seconds
+```
+
+### Skill Directory Structure
+
+Each skill lives in its own directory under `SKILLS_DIR`:
+
+```
+skills/
+  my-skill/
+    SKILL.md        # Required: YAML frontmatter + instructions
+    scripts/        # Required: executable scripts (bash, python, etc.)
+    references/     # Optional: reference documentation
+```
+
+### SKILL.md Format
+
+```yaml
+---
+name: my-skill
+description: What this skill does and when to use it
+---
+
+## Instructions
+
+Detailed usage instructions for the LLM.
+```
+
+### How It Works
+
+1. At startup the server scans `SKILLS_DIR` and registers each skill as a tool
+2. Skills are injected into LLM requests alongside MCP tools
+3. When the LLM calls a skill tool, the server executes the specified script
+4. Script output is returned as the tool result
+
+Each skill becomes a tool named `skill__<name>` with parameters `script` (which script to run) and `args` (command-line arguments).
+
+### Security
+
+- **Off by default** -- must set `SKILLS_ENABLED=true` explicitly
+- Scripts are confined to their skill’s `scripts/` directory (path traversal blocked)
+- No shell execution (`shell=True` is never used)
+- Only executable files can be run
+- Configurable timeout prevents runaway scripts
 
 
 ## Star History

@@ -510,7 +510,9 @@ class TestProcessChatCompletionsStream:
         deltas = [e for e in events if e["type"] == "response.output_text.delta"]
         assert len(deltas) >= 2
         assert deltas[0]["delta"] == "Hello"
+        assert deltas[0]["content_index"] == 0
         assert deltas[1]["delta"] == " world"
+        assert deltas[1]["content_index"] == 0
 
         # Should end with completed
         completed = [e for e in events if e["type"] == "response.completed"]
@@ -571,6 +573,7 @@ class TestProcessChatCompletionsStream:
         deltas = [e for e in events if e["type"] == "response.output_text.delta"]
         assert len(deltas) == 1
         assert deltas[0]["delta"] == "A"
+        assert deltas[0]["content_index"] == 0
 
     async def test_json_parse_error_continues(self, mock_stream_response):
         """JSON parse errors in chunks are logged and processing continues."""
@@ -587,6 +590,7 @@ class TestProcessChatCompletionsStream:
         deltas = [e for e in events if e["type"] == "response.output_text.delta"]
         assert len(deltas) == 1
         assert deltas[0]["delta"] == "OK"
+        assert deltas[0]["content_index"] == 0
 
     async def test_tool_calls_finish_with_mcp_tool(
         self, mock_stream_response, mock_mcp_manager_fixture
@@ -815,7 +819,9 @@ class TestProcessChatCompletionsStream:
         deltas = [e for e in events if e["type"] == "response.output_text.delta"]
         assert len(deltas) == 2
         assert deltas[0]["delta"] == "A"
+        assert deltas[0]["content_index"] == 0
         assert deltas[1]["delta"] == "B"
+        assert deltas[1]["content_index"] == 0
 
     async def test_no_chat_request_no_history_saved(self, mock_stream_response):
         """When chat_request is None, no conversation history is saved."""

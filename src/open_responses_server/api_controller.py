@@ -1,13 +1,36 @@
 import json
+import asyncio
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import StreamingResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 
-from open_responses_server.common.config import logger
+from open_responses_server.common.config import logger, HEARTBEAT_INTERVAL, STREAM_TIMEOUT
 from open_responses_server.common.llm_client import startup_llm_client, shutdown_llm_client, LLMClient
 from open_responses_server.common.mcp_manager import mcp_manager
 from open_responses_server.responses_service import convert_responses_to_chat_completions, process_chat_completions_stream
 from open_responses_server.chat_completions_service import handle_chat_completions
+
+_HEARTBEAT = object()
+
+
+async def _with_heartbeat(async_gen, interval):
+    """Wrap an async generator to yield _HEARTBEAT sentinels during idle periods.
+
+    Uses asyncio.wait with timeout so the underlying task is never cancelled.
+    This keeps SSE connections alive when the backend LLM is slow to respond.
+    """
+    aiter = async_gen.__aiter__()
+    while True:
+        task = asyncio.ensure_future(aiter.__anext__())
+        while not task.done():
+            done, _ = await asyncio.wait({task}, timeout=interval)
+            if not done:
+                yield _HEARTBEAT
+        try:
+            yield task.result()
+        except StopAsyncIteration:
+            return
+
 
 app = FastAPI(
     title="Open Responses Server",
@@ -249,7 +272,7 @@ async def create_response(request: Request):
                         "POST",
                         "/v1/chat/completions",
                         json=chat_request,
-                        timeout=120.0
+                        timeout=STREAM_TIMEOUT
                     ) as response:
                         logger.info(f"Stream request status: {response.status_code}")
                         
@@ -259,8 +282,15 @@ async def create_response(request: Request):
                             yield f"data: {json.dumps({'type': 'error', 'error': {'message': f'Error from LLM API: {response.status_code}'}})}\n\n"
                             return
                         
-                        async for event in process_chat_completions_stream(response, chat_request):
-                            yield event
+                        async for event in _with_heartbeat(
+                            process_chat_completions_stream(response, chat_request),
+                            HEARTBEAT_INTERVAL
+                        ):
+                            if event is _HEARTBEAT:
+                                logger.debug("[STREAM-HEARTBEAT] Sending SSE keepalive")
+                                yield ": heartbeat\n\n"
+                            else:
+                                yield event
                 except Exception as e:
                     logger.error(f"Error in stream_response: {str(e)}")
                     yield f"data: {json.dumps({'type': 'error', 'error': {'message': str(e)}})}\n\n"
@@ -346,7 +376,7 @@ async def create_response(request: Request):
         
 #        async def stream_response():
 #            try:
-#                async with client.stream("POST", "/v1/chat/completions", json=chat_request, timeout=120.0) as response:
+#                async with client.stream("POST", "/v1/chat/completions", json=chat_request, timeout=STREAM_TIMEOUT) as response:
 #                    if response.status_code != 200:
 #                        error_content = await response.aread()
 #                        logger.error(f"Error from LLM API: {error_content.decode()}")
@@ -411,12 +441,12 @@ async def proxy_endpoint(request: Request, path_name: str):
 
         if is_stream:
             async def stream_proxy():
-                async with client.stream(request.method, url, headers=headers, content=body, timeout=120.0) as response:
+                async with client.stream(request.method, url, headers=headers, content=body, timeout=STREAM_TIMEOUT) as response:
                     async for chunk in response.aiter_bytes():
                         yield chunk
             return StreamingResponse(stream_proxy(), media_type=request.headers.get('accept', 'application/json'))
         else:
-            response = await client.request(request.method, url, headers=headers, content=body, timeout=120.0)
+            response = await client.request(request.method, url, headers=headers, content=body, timeout=STREAM_TIMEOUT)
             return Response(content=response.content, status_code=response.status_code, headers=response.headers)
             
     except Exception as e:

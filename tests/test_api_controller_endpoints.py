@@ -1,13 +1,14 @@
 """
 Tests for api_controller.py endpoints.
 """
+import asyncio
 import json
 import pytest
 from unittest.mock import patch, MagicMock, AsyncMock
 from fastapi.testclient import TestClient
 from fastapi.responses import StreamingResponse
 
-from open_responses_server.api_controller import app
+from open_responses_server.api_controller import app, _with_heartbeat, _HEARTBEAT
 
 
 class TestResponsesEndpoint:
@@ -274,3 +275,66 @@ class TestProxyEndpoint:
             headers={"content-type": "text/plain"},
         )
         assert response.status_code == 200
+
+
+@pytest.mark.asyncio
+class TestWithHeartbeat:
+    """Tests for the _with_heartbeat async generator wrapper."""
+
+    async def test_fast_generator_no_heartbeats(self):
+        """Fast generators produce no heartbeat sentinels."""
+        async def fast_gen():
+            yield "a"
+            yield "b"
+            yield "c"
+
+        results = [item async for item in _with_heartbeat(fast_gen(), interval=10.0)]
+        assert results == ["a", "b", "c"]
+        assert _HEARTBEAT not in results
+
+    async def test_slow_generator_emits_heartbeats(self):
+        """Slow generators trigger heartbeat sentinels between items."""
+        async def slow_gen():
+            yield "first"
+            await asyncio.sleep(0.6)
+            yield "second"
+
+        results = [item async for item in _with_heartbeat(slow_gen(), interval=0.2)]
+        # Should have at least one heartbeat between "first" and "second"
+        heartbeats = [r for r in results if r is _HEARTBEAT]
+        data = [r for r in results if r is not _HEARTBEAT]
+        assert len(heartbeats) >= 1
+        assert data == ["first", "second"]
+
+    async def test_empty_generator(self):
+        """Empty generator produces no output."""
+        async def empty_gen():
+            return
+            yield  # noqa: unreachable - makes this an async generator
+
+        results = [item async for item in _with_heartbeat(empty_gen(), interval=1.0)]
+        assert results == []
+
+    async def test_generator_exception_propagates(self):
+        """Exceptions from the wrapped generator propagate through."""
+        async def error_gen():
+            yield "ok"
+            raise ValueError("test error")
+
+        results = []
+        with pytest.raises(ValueError, match="test error"):
+            async for item in _with_heartbeat(error_gen(), interval=1.0):
+                results.append(item)
+        assert results == ["ok"]
+
+    async def test_heartbeat_count_scales_with_delay(self):
+        """Longer delays produce more heartbeats."""
+        async def very_slow_gen():
+            yield "start"
+            await asyncio.sleep(1.0)
+            yield "end"
+
+        results = [item async for item in _with_heartbeat(very_slow_gen(), interval=0.2)]
+        heartbeats = [r for r in results if r is _HEARTBEAT]
+        # ~1.0s delay / 0.2s interval = ~5 heartbeats (allow some variance)
+        assert len(heartbeats) >= 3

@@ -2,7 +2,7 @@ import json
 from fastapi import Request
 from fastapi.responses import StreamingResponse, Response, JSONResponse
 from open_responses_server.common.llm_client import LLMClient
-from open_responses_server.common.config import logger, OPENAI_BASE_URL_INTERNAL, OPENAI_API_KEY, MAX_TOOL_CALL_ITERATIONS
+from open_responses_server.common.config import logger, OPENAI_BASE_URL_INTERNAL, OPENAI_API_KEY, MAX_TOOL_CALL_ITERATIONS, STREAM_TIMEOUT
 from open_responses_server.common.mcp_manager import mcp_manager, serialize_tool_result
 
 async def _handle_non_streaming_request(client: LLMClient, request_data: dict):
@@ -25,7 +25,7 @@ async def _handle_non_streaming_request(client: LLMClient, request_data: dict):
             response = await client.post(
                 "/v1/chat/completions",
                 json=current_request_data,
-                timeout=120.0
+                timeout=STREAM_TIMEOUT
             )
             response.raise_for_status()
             response_data = response.json()
@@ -102,7 +102,7 @@ async def _handle_streaming_request(client: LLMClient, request_data: dict) -> St
     for _ in range(MAX_TOOL_CALL_ITERATIONS):
         try:
             # Make a non-streaming request first to check for tool calls
-            response = await client.post("/v1/chat/completions", json={**non_stream_request_data, "messages": messages}, timeout=120.0)
+            response = await client.post("/v1/chat/completions", json={**non_stream_request_data, "messages": messages}, timeout=STREAM_TIMEOUT)
             response.raise_for_status()
             response_data = response.json()
             
@@ -170,7 +170,7 @@ async def _handle_streaming_request(client: LLMClient, request_data: dict) -> St
                             "POST",
                             "/v1/chat/completions",
                             json=stream_request_data,
-                            timeout=120.0
+                            timeout=STREAM_TIMEOUT
                         ) as stream_response:
                             async for chunk in stream_response.aiter_bytes():
                                 yield chunk

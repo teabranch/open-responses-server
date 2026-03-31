@@ -91,6 +91,7 @@ class OutputTextDelta(BaseModel):
     type: str = "response.output_text.delta"
     item_id: str
     output_index: int
+    content_index: int
     delta: str
 
 class ResponseCreated(BaseModel):

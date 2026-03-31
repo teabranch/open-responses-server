@@ -9,8 +9,13 @@ import yaml
 
 from .config import SKILLS_ENABLED, SKILLS_DIR, SKILLS_EXEC_TIMEOUT, logger
 
+import re
+
 # Maximum characters of SKILL.md instructions to include in tool description
 _MAX_INSTRUCTIONS_LENGTH = 2000
+
+# Tool names must be alphanumeric + hyphens/underscores, max 64 chars
+_VALID_TOOL_NAME_RE = re.compile(r'^[a-zA-Z0-9_-]{1,64}$')
 
 
 def _parse_skill_md(content: str) -> Optional[dict]:
@@ -120,14 +125,35 @@ class SkillManager:
                     logger.warning(f"[SKILLS-STARTUP] Skipping '{entry.name}': invalid SKILL.md frontmatter")
                     continue
 
+                if not _VALID_TOOL_NAME_RE.match(parsed["name"]):
+                    logger.warning(
+                        f"[SKILLS-STARTUP] Skipping '{entry.name}': "
+                        f"skill name '{parsed['name']}' contains invalid characters "
+                        f"(must be alphanumeric, hyphens, underscores, max 64 chars)"
+                    )
+                    continue
+
                 scripts_dir = entry / "scripts"
                 references_dir = entry / "references"
 
                 available_scripts: List[str] = []
                 if scripts_dir.is_dir():
+                    scripts_dir_resolved = scripts_dir.resolve()
                     for script_file in sorted(scripts_dir.iterdir()):
-                        if script_file.is_file() and os.access(script_file, os.X_OK):
-                            available_scripts.append(script_file.name)
+                        if not script_file.is_file() or not os.access(script_file, os.X_OK):
+                            continue
+                        # Reject symlinks pointing outside scripts/
+                        try:
+                            resolved = script_file.resolve()
+                        except OSError:
+                            continue
+                        if not str(resolved).startswith(str(scripts_dir_resolved) + os.sep):
+                            logger.warning(
+                                f"[SKILLS-STARTUP] Skipping symlink '{script_file.name}' "
+                                f"in skill '{parsed['name']}': points outside scripts/"
+                            )
+                            continue
+                        available_scripts.append(script_file.name)
 
                 if not available_scripts:
                     logger.warning(f"[SKILLS-STARTUP] Skill '{parsed['name']}' has no executable scripts in scripts/")
@@ -289,11 +315,19 @@ class SkillManager:
                 logger.warning(f"[SKILLS-EXEC] {error_msg}")
                 raise RuntimeError(error_msg)
 
+            # Include stderr warnings in output when script succeeds
+            output = stdout_text
+            if stderr_text:
+                if output:
+                    output += "\n\n[stderr]\n" + stderr_text
+                else:
+                    output = stderr_text
+
             logger.info(
                 f"[SKILLS-EXEC] Skill '{skill.name}' script '{script_name}' "
-                f"completed successfully ({len(stdout_text)} chars output)"
+                f"completed successfully ({len(output)} chars output)"
             )
-            return stdout_text if stdout_text else "(no output)"
+            return output if output else "(no output)"
 
         except asyncio.TimeoutError:
             logger.error(

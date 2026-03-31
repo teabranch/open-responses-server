@@ -80,15 +80,14 @@ class TestResponsesEndpoint:
         assert response.status_code == 200
 
     def test_responses_non_streaming(self, client):
-        """POST /responses non-streaming logs unsupported and returns 200."""
+        """POST /responses non-streaming returns 501."""
         request_data = {
             "model": "test-model",
             "input": [{"type": "message", "role": "user", "content": [{"type": "input_text", "text": "Hello"}]}],
             "stream": False,
         }
         response = client.post("/responses", json=request_data)
-        # Non-streaming returns 200 with None body
-        assert response.status_code == 200
+        assert response.status_code == 501
 
     def test_responses_exception_returns_500(self, client):
         """POST /responses with exception raises 500."""
@@ -103,7 +102,7 @@ class TestResponsesEndpoint:
             assert response.status_code == 500
 
     def test_responses_input_logging_variants(self, client):
-        """POST /responses with various input types for logging coverage."""
+        """POST /responses with various input types for logging coverage (non-streaming returns 501)."""
         request_data = {
             "model": "test-model",
             "input": [
@@ -119,7 +118,7 @@ class TestResponsesEndpoint:
             "stream": False,
         }
         response = client.post("/responses", json=request_data)
-        assert response.status_code == 200
+        assert response.status_code == 501
 
     def test_responses_stream_error_from_llm(self, client, mock_llm_client_fixture):
         """POST /responses streaming when LLM returns error status."""

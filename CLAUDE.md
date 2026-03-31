@@ -73,7 +73,7 @@ api_controller.py  -- FastAPI app with route definitions, CORS, startup/shutdown
 - `api_controller.py` - Route definitions. `server_entrypoint.py` is the uvicorn entry point that imports from `api_controller`.
 - `responses_service.py` - Converts Responses API requests to Chat Completions format (`convert_responses_to_chat_completions`), processes streaming Chat Completions responses back into Responses API SSE events (`process_chat_completions_stream`). Maintains in-memory `conversation_history` keyed by `previous_response_id`.
 - `chat_completions_service.py` - Handles `/v1/chat/completions` with MCP tool injection. Implements a tool-call loop (up to `MAX_TOOL_CALL_ITERATIONS`) for both streaming and non-streaming modes.
-- `common/mcp_manager.py` - `MCPManager` singleton manages MCP server lifecycle (stdio-based), tool discovery/caching with periodic refresh, and tool execution. `MCPServer` wraps individual server sessions.
+- `common/mcp_manager.py` - `MCPManager` singleton manages MCP server lifecycle (stdio, sse, streamable-http transports), tool discovery/caching with periodic refresh, and tool execution. `MCPServer` wraps individual server sessions.
 - `common/llm_client.py` - `LLMClient` singleton wrapping `httpx.AsyncClient`, pointed at `OPENAI_BASE_URL_INTERNAL`.
 - `common/config.py` - All configuration via environment variables (loaded from `.env` via python-dotenv). Key vars: `OPENAI_BASE_URL_INTERNAL`, `OPENAI_API_KEY`, `MCP_SERVERS_CONFIG_PATH`, `MAX_TOOL_CALL_ITERATIONS`.
 - `models/responses_models.py` - Pydantic models for Responses API request/response/streaming types.
@@ -82,7 +82,9 @@ api_controller.py  -- FastAPI app with route definitions, CORS, startup/shutdown
 
 ## Configuration
 
-All config is via environment variables (see `common/config.py`). The CLI command `otc configure` writes a `.env` file interactively. MCP servers are configured in a JSON file pointed to by `MCP_SERVERS_CONFIG_PATH` (default: `src/open_responses_server/servers_config.json`).
+All config is via environment variables (see `common/config.py`). The CLI command `otc configure` writes a `.env` file interactively. MCP servers are configured in a JSON file pointed to by `MCP_SERVERS_CONFIG_PATH` (default: `src/open_responses_server/servers_config.json`). Note: this default path assumes running from the repo root; when installed via pip, set it to an absolute path.
+
+**Important:** The `/responses` endpoint only supports streaming (`stream=True`). Non-streaming requests return HTTP 501.
 
 ## Version & Releasing
 
@@ -96,7 +98,7 @@ Version lives in `src/open_responses_server/version.py` as `__version__` — the
 
 ## CLI Entry Point
 
-The `otc` command is defined in `pyproject.toml` pointing to `open_responses_server.cli:main`. Commands: `start`, `configure`, `help`.
+The `otc` command is defined in `pyproject.toml` pointing to `open_responses_server.cli:main`. Commands: `start`, `configure`, `help`. Also supports `--version` flag.
 
 ## PR Workflow
 

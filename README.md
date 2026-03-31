@@ -81,6 +81,7 @@ docker run -p 8080:8080 \
   ghcr.io/teabranch/open-responses-server:latest
 ```
 
+Docker images are available for linux/amd64, linux/arm64, and linux/arm/v7 architectures.
 Works great with docker-compose.yaml for Codex + your own model.
 
 ⸻
@@ -90,7 +91,7 @@ Works great with docker-compose.yaml for Codex + your own model.
 Minimal config to connect your AI backend:
 
 ```
-OPENAI_BASE_URL_INTERNAL=http://localhost:11434  # Ollama, vLLM, Groq, etc.
+OPENAI_BASE_URL_INTERNAL=http://localhost:8000   # Your LLM backend (Ollama typically on :11434, vLLM on :8000)
 OPENAI_BASE_URL=http://localhost:8080            # This server's endpoint
 OPENAI_API_KEY=sk-mockapikey123456789            # Mock key tunneled to backend
 MCP_SERVERS_CONFIG_PATH=./mcps.json              # Path to mcps servers json file 
@@ -101,10 +102,21 @@ Server binding:
 API_ADAPTER_HOST=0.0.0.0
 API_ADAPTER_PORT=8080
 ```
-Optional logging:
+Streaming and connection:
 ```
-LOG_LEVEL=INFO
-LOG_FILE_PATH=./log/api_adapter.log
+STREAM_TIMEOUT=120.0                # HTTP timeout (seconds) for streaming requests
+HEARTBEAT_INTERVAL=15.0             # SSE keepalive interval (seconds)
+```
+Conversation and tool handling:
+```
+MAX_CONVERSATION_HISTORY=100        # Max stored conversation entries
+MAX_TOOL_CALL_ITERATIONS=25         # Max tool-call loop iterations
+MCP_TOOL_REFRESH_INTERVAL=10        # Seconds between MCP tool cache refreshes
+```
+Logging:
+```
+LOG_LEVEL=INFO                      # DEBUG, INFO, WARNING, ERROR, CRITICAL
+LOG_FILE_PATH=./log/api_adapter.log # Path to log file
 ```
 
 Configure with CLI tool:

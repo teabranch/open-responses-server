@@ -98,10 +98,9 @@ class TestServer:
             "stream": False
         }
         
-        # Note: The actual implementation might return a different response
-        # or might log that non-streaming is unsupported
+        # Non-streaming /responses returns 501
         response = client.post("/responses", json=request_data)
-        assert response.status_code == 200 or response.status_code == 500
+        assert response.status_code == 501
         
         # If we get a successful response, check basic structure
         if response.status_code == 200 and response.content:

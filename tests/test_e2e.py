@@ -15,10 +15,10 @@ class TestE2E:
     
     @pytest.mark.asyncio
     async def test_server_responses_api(self, server_process):
-        """Test that the server handles Responses API requests correctly"""
+        """Test that the server rejects non-streaming /responses requests with 501"""
         process, base_url = server_process
-        
-        # Test request data
+
+        # Test request data (non-streaming)
         request_data = {
             "model": "test-model",
             "input": [
@@ -35,18 +35,11 @@ class TestE2E:
             ],
             "stream": False
         }
-        
-        # Send request to the responses endpoint
+
+        # Non-streaming /responses should return 501
         async with httpx.AsyncClient() as client:
             response = await client.post(f"{base_url}/responses", json=request_data)
-            assert response.status_code == 200
-            
-            # Verify response structure
-            response_data = response.json()
-            if response_data:  # Only check if we have data
-                assert response_data["model"] == "test-model"
-                assert "id" in response_data
-                assert "created_at" in response_data
+            assert response.status_code == 501
     
     @pytest.mark.asyncio
     async def test_server_streaming_responses(self, server_process):

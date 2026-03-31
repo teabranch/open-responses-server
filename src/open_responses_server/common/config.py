@@ -35,18 +35,21 @@ LOG_FILE_PATH = os.environ.get("LOG_FILE_PATH", "./log/api_adapter.log")
 
 def setup_logging():
     """Configures the global logger."""
+    handlers = [logging.StreamHandler()]
+
     log_dir = os.path.dirname(LOG_FILE_PATH)
-    if log_dir and not os.path.exists(log_dir):
-        os.makedirs(log_dir)
+    if log_dir:
+        os.makedirs(log_dir, exist_ok=True)
+    try:
+        handlers.append(logging.FileHandler(LOG_FILE_PATH))
+    except (OSError, IOError) as exc:
+        print(f"Warning: cannot open log file {LOG_FILE_PATH}: {exc}")
 
     numeric_level = getattr(logging, LOG_LEVEL, logging.INFO)
     logging.basicConfig(
         level=numeric_level,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        handlers=[
-            logging.FileHandler(LOG_FILE_PATH),
-            logging.StreamHandler()
-        ]
+        handlers=handlers,
     )
     logger = logging.getLogger("api_adapter")
     logger.info("Logging configured.")

@@ -275,8 +275,6 @@ When processing Responses API input with `function_call_output` items
    containing the tool name and arguments, then adds the tool response.
    This handles resuming from external tool execution.
 
-## Pydantic Models Reference
-
 ## Connection Keepalive (Heartbeat)
 
 When the backend LLM is slow to respond, the server sends SSE comment lines

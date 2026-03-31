@@ -19,17 +19,36 @@ async def _with_heartbeat(async_gen, interval):
     Uses asyncio.wait with timeout so the underlying task is never cancelled.
     This keeps SSE connections alive when the backend LLM is slow to respond.
     """
+    if interval is None or interval <= 0:
+        interval = 1.0
+
     aiter = async_gen.__aiter__()
-    while True:
-        task = asyncio.ensure_future(aiter.__anext__())
-        while not task.done():
-            done, _ = await asyncio.wait({task}, timeout=interval)
-            if not done:
-                yield _HEARTBEAT
-        try:
-            yield task.result()
-        except StopAsyncIteration:
-            return
+    task = None
+    try:
+        while True:
+            task = asyncio.ensure_future(aiter.__anext__())
+            while not task.done():
+                done, _ = await asyncio.wait({task}, timeout=interval)
+                if not done:
+                    yield _HEARTBEAT
+            try:
+                yield task.result()
+            except StopAsyncIteration:
+                return
+            finally:
+                task = None
+    finally:
+        if task is not None and not task.done():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+        if hasattr(aiter, "aclose"):
+            try:
+                await aiter.aclose()
+            except Exception:
+                pass
 
 
 app = FastAPI(

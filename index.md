@@ -4,14 +4,34 @@ nav_order: 0
 permalink: /
 ---
 
-## Open Responses Server
+# Open Responses Server
 
 A plug-and-play server that speaks OpenAI's Responses API — no matter which AI
 backend you're running.
 
+<p><em>Find this useful? Star the repo to follow updates and show support!</em>
+<iframe src="https://ghbtns.com/github-btn.html?user=teabranch&repo=open-responses-server&type=star&count=true&size=large" frameborder="0" scrolling="0" width="170" height="30" title="Star on GitHub" style="vertical-align: middle;"></iframe></p>
+
+> **Install from PyPI** — `pip install open-responses-server` and run `otc start`.
+> See [CLI Usage](docs/cli-local.md) for all options.
+
 Ollama, vLLM, LiteLLM, Groq, or even OpenAI itself — this server bridges them
 all to the OpenAI Responses API interface. It handles stateful chat, tool calls,
 and MCP server integration behind a familiar API.
+
+---
+
+## What's Inside
+
+- **[Architecture](docs/open-responses-server.md)** — Module map, request routing, configuration reference
+- **[Events & Tools](docs/events-and-tool-handling.md)** — SSE event types, emission sequences, tool lifecycle
+- **[API Flow Diagrams](docs/responses_flow.md)** — Mermaid sequence diagrams for both endpoints
+- **[Testing Guide](docs/testing-guide.md)** — Running tests, writing tests, coverage
+- **[CLI Usage](docs/cli-local.md)** — `otc` commands and options
+- **[Extending](docs/extend-instructions.md)** — Web search and RAG extension guide
+- **[Security](docs/SECURITY.md)** — Security scanning setup and policies
+- **[Using uv](docs/using-uv.md)** — Fast Python environment setup with uv
+- **[Publishing to PyPI](docs/pip-publish-instructions.md)** — Release and publish workflow
 
 ---
 
@@ -59,20 +79,6 @@ curl http://localhost:8080/v1/models
 
 ---
 
-## Documentation
-
-| Page | Description |
-| --- | --- |
-| [Architecture](docs/open-responses-server.md) | Module map, request routing, configuration reference |
-| [Events & Tools](docs/events-and-tool-handling.md) | SSE event types, emission sequences, tool lifecycle |
-| [API Flow Diagrams](docs/responses_flow.md) | Mermaid sequence diagrams for both endpoints |
-| [Testing Guide](docs/testing-guide.md) | Running tests, writing tests, coverage |
-| [CLI Usage](docs/cli-local.md) | `otc` commands and options |
-| [Extending](docs/extend-instructions.md) | Web search and RAG extension guide |
-| [Security](docs/SECURITY.md) | Security scanning setup and policies |
-
----
-
 ## Key Features
 
 - Drop-in replacement for OpenAI's Responses API
@@ -81,3 +87,11 @@ curl http://localhost:8080/v1/models
 - Supports OpenAI's Codex CLI and other Responses API clients
 - Stateful multi-turn conversations via in-memory history
 - Tool call execution loop with configurable iteration limits
+
+---
+
+## About
+
+Open Responses Server is an open-source project. It is **not** affiliated with or endorsed by OpenAI.
+
+Licensed under [MIT](https://github.com/teabranch/open-responses-server/blob/main/LICENSE).

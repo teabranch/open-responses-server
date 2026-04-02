@@ -1,3 +1,10 @@
+---
+title: Publishing to PyPI
+nav_order: 9
+---
+
+# Publishing to PyPI
+
 **1. Separate CLI Logic:**
 
 We'll create a separate CLI entry point. This keeps the server code clean and focused on its API duties. Let's create a new file, for example, `src/cli.py`:

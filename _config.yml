@@ -34,9 +34,6 @@ defaults:
     values:
       layout: "default"
 
-webmaster_verifications:
-  google: SAWMasZ1hKCZm8hnk0xFUgqnFYYPgdrKG8jKuTJa6a0
-
 exclude:
   - README.md
   - CLAUDE.md

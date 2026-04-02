@@ -28,10 +28,14 @@ jobs:
           bundler-cache: true
 
       - name: Setup Pages
+        id: pages
         uses: actions/configure-pages@v5
 
+      - name: Initialize search index
+        run: bundle exec just-the-docs rake search:init
+
       - name: Build with Jekyll
-        run: bundle exec jekyll build
+        run: bundle exec jekyll build --baseurl "${{ steps.pages.outputs.base_path }}"
         env:
           JEKYLL_ENV: production
 

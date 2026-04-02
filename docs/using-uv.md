@@ -1,4 +1,11 @@
-Okay, let's break down how to set up and use a local Python environment with `uv` after you've installed it.
+---
+title: Using uv
+nav_order: 8
+---
+
+# Using uv
+
+Let's break down how to set up and use a local Python environment with `uv` after you've installed it.
 
 `uv` aims to be a very fast, drop-in replacement for `pip` and `venv` (and potentially other tools like `pip-tools`). The workflow is similar to using `venv` and `pip`, but often faster and integrated.
 

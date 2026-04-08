@@ -1,8 +1,8 @@
 title: Open Responses Server
 description: >-
   A plug-and-play server that speaks OpenAI's Responses API—no matter which AI backend you're running.
-baseurl: "/open-responses-server"
-url: "https://teabranch.github.io"
+baseurl: ""
+url: "https://open-responses-server.teabranch.dev"
 
 theme: just-the-docs
 color_scheme: anthropic

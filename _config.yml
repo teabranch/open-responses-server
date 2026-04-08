@@ -23,7 +23,7 @@ footer_content: >-
 plugins:
   - jekyll-seo-tag
   - jekyll-relative-links
-    - jekyll-sitemap
+  - jekyll-sitemap
 
 relative_links:
   enabled: true

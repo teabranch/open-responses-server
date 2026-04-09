@@ -285,6 +285,56 @@ class TestConvertResponsesToChatCompletions:
         assert len(tool_msgs) >= 1
         assert tool_msgs[0]["tool_call_id"] == "call_new"
 
+    def test_function_call_output_falls_back_to_id_field(self):
+        """function_call_output should accept id when call_id is absent."""
+        conversation_history["prev_fc_id"] = [
+            {"role": "user", "content": "do something"},
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {"id": "call_from_id", "type": "function", "function": {"name": "my_tool", "arguments": "{}"}},
+                ],
+            },
+        ]
+        req = {
+            "model": "m",
+            "previous_response_id": "prev_fc_id",
+            "input": [
+                {
+                    "type": "function_call_output",
+                    "id": "call_from_id",
+                    "name": "my_tool",
+                    "output": "tool result here",
+                }
+            ],
+        }
+        result = convert_responses_to_chat_completions(req)
+        tool_msgs = [m for m in result["messages"] if m.get("role") == "tool"]
+        assert len(tool_msgs) == 1
+        assert tool_msgs[0]["tool_call_id"] == "call_from_id"
+        assert tool_msgs[0]["content"] == "tool result here"
+
+    def test_function_call_output_normalizes_non_string_output(self):
+        """function_call_output content should be stringified for chat.completions."""
+        req = {
+            "model": "m",
+            "input": [
+                {
+                    "type": "function_call_output",
+                    "call_id": "call_structured",
+                    "name": "new_tool",
+                    "output": {"ok": True, "items": [1, 2]},
+                }
+            ],
+        }
+        result = convert_responses_to_chat_completions(req)
+        tool_msgs = [m for m in result["messages"] if m.get("role") == "tool"]
+        assert len(tool_msgs) == 1
+        assert tool_msgs[0]["tool_call_id"] == "call_structured"
+        assert isinstance(tool_msgs[0]["content"], str)
+        assert json.loads(tool_msgs[0]["content"]) == {"ok": True, "items": [1, 2]}
+
     def test_function_call_output_without_tool_name_skipped(self):
         """function_call_output without a tool name is skipped (continues)."""
         req = {

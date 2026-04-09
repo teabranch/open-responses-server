@@ -22,6 +22,18 @@ reasoning_content_cache: Dict[str, str] = {}
 def current_timestamp() -> int:
     return int(time.time())
 
+
+def _stringify_tool_output(output: Any) -> str:
+    """Normalize tool output into the string payload chat.completions expects."""
+    if output is None:
+        return ""
+    if isinstance(output, str):
+        return output
+    try:
+        return serialize_tool_result(output)
+    except TypeError:
+        return str(output)
+
 def validate_message_sequence(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
     Validate and fix the message sequence to ensure tool messages have preceding assistant messages with tool_calls.
@@ -213,8 +225,8 @@ def convert_responses_to_chat_completions(request_data: dict) -> dict:
 
                 # Handle function_call_output items (tool results)
                 elif item_type == "function_call_output":
-                    call_id = item.get("call_id")
-                    output = item.get("output", "")
+                    call_id = item.get("call_id") or item.get("id") or f"call_{uuid.uuid4().hex}"
+                    output = _stringify_tool_output(item.get("output", ""))
                     logger.info(f"[INPUT] function_call_output: call_id={call_id} output_len={len(str(output))}")
 
                     # Check if we have a corresponding assistant message with a matching tool call

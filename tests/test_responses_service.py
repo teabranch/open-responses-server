@@ -938,6 +938,37 @@ class TestProcessChatCompletionsStream:
         assert len(item_done) >= 1
         assert item_done[0]["item"]["status"] == "completed"
 
+    async def test_tool_calls_name_arrives_later_keep_unique_output_indexes(
+        self, mock_stream_response, mock_mcp_manager_fixture
+    ):
+        """Tool calls with delayed function names should still get unique output indexes."""
+        mock_mcp = mock_mcp_manager_fixture
+        mock_mcp.is_mcp_tool.return_value = False
+
+        lines = [
+            'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_a","type":"function","function":{"arguments":""}},{"index":1,"id":"call_b","type":"function","function":{"name":"tool_b","arguments":""}}]},"index":0}],"model":"m"}',
+            'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"name":"tool_a","arguments":"{}"}},{"index":1,"function":{"arguments":"{}"}}]},"index":0}]}',
+            'data: {"choices":[{"delta":{},"finish_reason":"tool_calls","index":0}]}',
+            'data: [DONE]',
+        ]
+        mock_resp = mock_stream_response(lines)
+        chat_req = {"messages": [{"role": "user", "content": "hi"}]}
+
+        events = [parse_sse(e) async for e in process_chat_completions_stream(mock_resp, chat_req)]
+
+        item_added = [e for e in events if e["type"] == "response.output_item.added"]
+        item_done = [e for e in events if e["type"] == "response.output_item.done" and e["item"]["type"] == "function_call"]
+
+        assert len(item_added) >= 2
+        assert len(item_done) >= 2
+
+        added_by_call = {e["item"]["id"]: e["output_index"] for e in item_added if e["item"]["type"] == "function_call"}
+        done_by_call = {e["item"]["id"]: e["output_index"] for e in item_done}
+
+        assert added_by_call["call_a"] != added_by_call["call_b"]
+        assert done_by_call["call_a"] == added_by_call["call_a"]
+        assert done_by_call["call_b"] == added_by_call["call_b"]
+
     async def test_function_call_legacy_created_event(
         self, mock_stream_response, mock_mcp_manager_fixture
     ):

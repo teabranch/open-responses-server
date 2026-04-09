@@ -410,6 +410,35 @@ async def process_chat_completions_stream(response, chat_request=None):
     yield f"data: {json.dumps(in_progress_event.dict())}\n\n"
     
     chunk_counter = 0
+
+    def ensure_tool_call_added(tool_call: Dict[str, Any]) -> str | None:
+        """Emit output_item.added once per tool call after its name becomes available."""
+        tool_name = tool_call["function"]["name"]
+        if tool_call.get("added_emitted") or not tool_name:
+            return None
+
+        logger.info(f"Tool call created: {tool_name}")
+        is_mcp = mcp_manager.is_mcp_tool(tool_name)
+        logger.info(f"[TOOL-CALL-CREATED] Tool '{tool_name}': is_mcp={is_mcp}, status=in_progress")
+
+        fc_item = {
+            "arguments": "",
+            "call_id": tool_call["id"],
+            "name": tool_name,
+            "type": "function_call",
+            "id": tool_call["id"],
+            "status": "in_progress"
+        }
+        response_obj.output.append(fc_item)
+        tool_call["added_emitted"] = True
+
+        item_added_event = OutputItemAdded(
+            output_index=tool_call["output_index"],
+            item=fc_item
+        )
+        logger.info(f"Emitting output_item.added for '{tool_name}'")
+        return f"data: {json.dumps(item_added_event.dict())}\n\n"
+
     try:
         async for chunk in response.aiter_lines():
             chunk_counter += 1
@@ -556,38 +585,18 @@ async def process_chat_completions_stream(response, chat_request=None):
                                             "name": tool_delta.get("function", {}).get("name", ""),
                                             "arguments": "",
                                         },
-                                        "output_index": tool_call_counter
+                                        "output_index": tool_call_counter,
+                                        "added_emitted": False,
                                     }
+                                    tool_call_counter += 1
 
-                                    # If we got a tool name, emit the output_item.added event
-                                    if "function" in tool_delta and "name" in tool_delta["function"]:
-                                        tool_call = tool_calls[index]
-                                        tool_call["function"]["name"] = tool_delta["function"]["name"]
-                                        logger.info(f"Tool call created: {tool_call['function']['name']}")
+                                tool_call = tool_calls[index]
 
-                                        is_mcp = mcp_manager.is_mcp_tool(tool_call["function"]["name"])
-                                        logger.info(f"[TOOL-CALL-CREATED] Tool '{tool_call['function']['name']}': is_mcp={is_mcp}, status=in_progress")
-
-                                        # Build the function_call item for the response output
-                                        fc_item = {
-                                            "arguments": "",
-                                            "call_id": tool_call["id"],
-                                            "name": tool_call["function"]["name"],
-                                            "type": "function_call",
-                                            "id": tool_call["id"],
-                                            "status": "in_progress"
-                                        }
-                                        response_obj.output.append(fc_item)
-
-                                        # Emit response.output_item.added
-                                        item_added_event = OutputItemAdded(
-                                            output_index=tool_call["output_index"],
-                                            item=fc_item
-                                        )
-                                        logger.info(f"Emitting output_item.added for '{tool_call['function']['name']}'")
-                                        yield f"data: {json.dumps(item_added_event.dict())}\n\n"
-
-                                        tool_call_counter += 1
+                                if "function" in tool_delta and "name" in tool_delta["function"]:
+                                    tool_call["function"]["name"] = tool_delta["function"]["name"]
+                                    item_added_payload = ensure_tool_call_added(tool_call)
+                                    if item_added_payload:
+                                        yield item_added_payload
                                 
                                 # Process function arguments if present
                                 if "function" in tool_delta and "arguments" in tool_delta["function"]:

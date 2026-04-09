@@ -1,14 +1,13 @@
 """
 Tests for the LLM client module.
 """
+import httpx
 import pytest
 from unittest.mock import patch, AsyncMock, MagicMock
-import httpx
 
-from open_responses_server.common.config import STREAM_TIMEOUT
+from open_responses_server.common.config import STREAM_TIMEOUT, BACKEND_CONNECT_TIMEOUT
 from open_responses_server.common.llm_client import (
     LLMClient,
-    BACKEND_CONNECT_TIMEOUT,
     get_backend_timeout,
     startup_llm_client,
     shutdown_llm_client,

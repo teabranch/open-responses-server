@@ -1,7 +1,11 @@
 import httpx
-from .config import OPENAI_BASE_URL_INTERNAL, OPENAI_API_KEY, STREAM_TIMEOUT, logger
-
-BACKEND_CONNECT_TIMEOUT = 30.0
+from .config import (
+    OPENAI_BASE_URL_INTERNAL,
+    OPENAI_API_KEY,
+    STREAM_TIMEOUT,
+    BACKEND_CONNECT_TIMEOUT,
+    logger,
+)
 
 
 def get_backend_timeout() -> httpx.Timeout:

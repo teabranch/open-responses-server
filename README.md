@@ -105,6 +105,7 @@ API_ADAPTER_PORT=8080
 Streaming and connection:
 ```
 STREAM_TIMEOUT=120.0                # Backend read timeout (seconds) for slow streaming responses
+BACKEND_CONNECT_TIMEOUT=30.0        # Backend connect/pool timeout (seconds)
 HEARTBEAT_INTERVAL=15.0             # SSE heartbeat event interval (seconds)
 ```
 

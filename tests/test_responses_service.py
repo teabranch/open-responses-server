@@ -16,6 +16,8 @@ from open_responses_server.responses_service import (
     validate_message_sequence,
     process_chat_completions_stream,
     conversation_history,
+    reasoning_content_cache,
+    _cache_reasoning_content,
 )
 
 
@@ -29,6 +31,15 @@ def parse_sse(raw: str) -> dict:
     if text.startswith("data: "):
         text = text[6:]
     return json.loads(text)
+
+
+@pytest.fixture(autouse=True)
+def clear_global_response_state():
+    conversation_history.clear()
+    reasoning_content_cache.clear()
+    yield
+    conversation_history.clear()
+    reasoning_content_cache.clear()
 
 
 # ===================================================================
@@ -130,6 +141,28 @@ class TestValidateMessageSequence:
         ]
         result = validate_message_sequence(messages)
         assert len(result) == 4
+
+
+class TestReasoningContentCache:
+    """Tests for reasoning_content cache eviction behavior."""
+
+    def test_cache_reasoning_content_evicts_oldest_entries(self):
+        """Cache should keep only the most recent bounded entries."""
+        _cache_reasoning_content("call_1", "r1", max_entries=2)
+        _cache_reasoning_content("call_2", "r2", max_entries=2)
+        _cache_reasoning_content("call_3", "r3", max_entries=2)
+
+        assert list(reasoning_content_cache.keys()) == ["call_2", "call_3"]
+
+    def test_cache_reasoning_content_refreshes_existing_key(self):
+        """Reinserting an existing call_id should move it to the newest position."""
+        _cache_reasoning_content("call_1", "r1", max_entries=2)
+        _cache_reasoning_content("call_2", "r2", max_entries=2)
+        _cache_reasoning_content("call_1", "r1-new", max_entries=2)
+        _cache_reasoning_content("call_3", "r3", max_entries=2)
+
+        assert list(reasoning_content_cache.keys()) == ["call_1", "call_3"]
+        assert reasoning_content_cache["call_1"] == "r1-new"
 
 
 # ===================================================================
@@ -284,6 +317,56 @@ class TestConvertResponsesToChatCompletions:
         tool_msgs = [m for m in msgs if m.get("role") == "tool"]
         assert len(tool_msgs) >= 1
         assert tool_msgs[0]["tool_call_id"] == "call_new"
+
+    def test_function_call_output_falls_back_to_id_field(self):
+        """function_call_output should accept id when call_id is absent."""
+        conversation_history["prev_fc_id"] = [
+            {"role": "user", "content": "do something"},
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {"id": "call_from_id", "type": "function", "function": {"name": "my_tool", "arguments": "{}"}},
+                ],
+            },
+        ]
+        req = {
+            "model": "m",
+            "previous_response_id": "prev_fc_id",
+            "input": [
+                {
+                    "type": "function_call_output",
+                    "id": "call_from_id",
+                    "name": "my_tool",
+                    "output": "tool result here",
+                }
+            ],
+        }
+        result = convert_responses_to_chat_completions(req)
+        tool_msgs = [m for m in result["messages"] if m.get("role") == "tool"]
+        assert len(tool_msgs) == 1
+        assert tool_msgs[0]["tool_call_id"] == "call_from_id"
+        assert tool_msgs[0]["content"] == "tool result here"
+
+    def test_function_call_output_normalizes_non_string_output(self):
+        """function_call_output content should be stringified for chat.completions."""
+        req = {
+            "model": "m",
+            "input": [
+                {
+                    "type": "function_call_output",
+                    "call_id": "call_structured",
+                    "name": "new_tool",
+                    "output": {"ok": True, "items": [1, 2]},
+                }
+            ],
+        }
+        result = convert_responses_to_chat_completions(req)
+        tool_msgs = [m for m in result["messages"] if m.get("role") == "tool"]
+        assert len(tool_msgs) == 1
+        assert tool_msgs[0]["tool_call_id"] == "call_structured"
+        assert isinstance(tool_msgs[0]["content"], str)
+        assert json.loads(tool_msgs[0]["content"]) == {"ok": True, "items": [1, 2]}
 
     def test_function_call_output_without_tool_name_skipped(self):
         """function_call_output without a tool name is skipped (continues)."""
@@ -656,12 +739,12 @@ class TestProcessChatCompletionsStream:
         done_evts = [e for e in events if e["type"] == "response.function_call_arguments.done"]
         assert len(done_evts) >= 1
 
-        # The tool call in the completed response should have status "ready"
+        # The tool call in the completed response should have status "completed"
         completed = [e for e in events if e["type"] == "response.completed"]
         assert len(completed) == 1
         fc_items = [o for o in completed[0]["response"]["output"] if o.get("type") == "function_call"]
         assert len(fc_items) >= 1
-        assert fc_items[0]["status"] == "ready"
+        assert fc_items[0]["status"] == "completed"
 
     async def test_function_call_finish_with_mcp_tool(
         self, mock_stream_response, mock_mcp_manager_fixture
@@ -719,7 +802,7 @@ class TestProcessChatCompletionsStream:
         fc_items = [o for o in completed[0]["response"]["output"] if o.get("type") == "function_call"]
         assert len(fc_items) >= 1
         assert fc_items[0]["name"] == "client_tool"
-        assert fc_items[0]["status"] == "ready"
+        assert fc_items[0]["status"] == "completed"
 
     async def test_conversation_history_saved_on_stop(self, mock_stream_response):
         """Conversation history is saved when finish_reason is 'stop'."""
@@ -863,7 +946,7 @@ class TestProcessChatCompletionsStream:
     async def test_tool_calls_created_event_emitted(
         self, mock_stream_response, mock_mcp_manager_fixture
     ):
-        """When a tool call is first seen, an in_progress event is emitted."""
+        """When a tool call is first seen, an output_item.added event is emitted."""
         mock_mcp = mock_mcp_manager_fixture
         mock_mcp.is_mcp_tool.return_value = False
 
@@ -877,10 +960,47 @@ class TestProcessChatCompletionsStream:
 
         events = [parse_sse(e) async for e in process_chat_completions_stream(mock_resp, chat_req)]
 
-        # Should have in_progress event for the tool call
-        in_progress = [e for e in events if e["type"] == "response.in_progress"]
-        # At least 2: one initial, one when tool call is created
-        assert len(in_progress) >= 2
+        # Should have output_item.added event for the tool call
+        item_added = [e for e in events if e["type"] == "response.output_item.added"]
+        assert len(item_added) >= 1
+        assert item_added[0]["item"]["type"] == "function_call"
+        assert item_added[0]["item"]["status"] == "in_progress"
+
+        # Should also have output_item.done event
+        item_done = [e for e in events if e["type"] == "response.output_item.done"]
+        assert len(item_done) >= 1
+        assert item_done[0]["item"]["status"] == "completed"
+
+    async def test_tool_calls_name_arrives_later_keep_unique_output_indexes(
+        self, mock_stream_response, mock_mcp_manager_fixture
+    ):
+        """Tool calls with delayed function names should still get unique output indexes."""
+        mock_mcp = mock_mcp_manager_fixture
+        mock_mcp.is_mcp_tool.return_value = False
+
+        lines = [
+            'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_a","type":"function","function":{"arguments":""}},{"index":1,"id":"call_b","type":"function","function":{"name":"tool_b","arguments":""}}]},"index":0}],"model":"m"}',
+            'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"name":"tool_a","arguments":"{}"}},{"index":1,"function":{"arguments":"{}"}}]},"index":0}]}',
+            'data: {"choices":[{"delta":{},"finish_reason":"tool_calls","index":0}]}',
+            'data: [DONE]',
+        ]
+        mock_resp = mock_stream_response(lines)
+        chat_req = {"messages": [{"role": "user", "content": "hi"}]}
+
+        events = [parse_sse(e) async for e in process_chat_completions_stream(mock_resp, chat_req)]
+
+        item_added = [e for e in events if e["type"] == "response.output_item.added"]
+        item_done = [e for e in events if e["type"] == "response.output_item.done" and e["item"]["type"] == "function_call"]
+
+        assert len(item_added) >= 2
+        assert len(item_done) >= 2
+
+        added_by_call = {e["item"]["id"]: e["output_index"] for e in item_added if e["item"]["type"] == "function_call"}
+        done_by_call = {e["item"]["id"]: e["output_index"] for e in item_done}
+
+        assert added_by_call["call_a"] != added_by_call["call_b"]
+        assert done_by_call["call_a"] == added_by_call["call_a"]
+        assert done_by_call["call_b"] == added_by_call["call_b"]
 
     async def test_function_call_legacy_created_event(
         self, mock_stream_response, mock_mcp_manager_fixture
@@ -1030,7 +1150,7 @@ class TestProcessChatCompletionsStream:
         assert created[0]["response"]["id"].startswith("resp_")
 
     async def test_stop_with_no_output_adds_empty_message(self, mock_stream_response):
-        """Stop finish_reason with empty output_text adds message with fallback text."""
+        """Stop finish_reason with empty output_text adds message with empty text."""
         lines = [
             'data: {"choices":[{"delta":{},"finish_reason":"stop","index":0}],"model":"m"}',
             'data: [DONE]',
@@ -1042,5 +1162,39 @@ class TestProcessChatCompletionsStream:
         assert len(completed) >= 1
         output = completed[0]["response"]["output"]
         assert len(output) >= 1
-        # Should have the fallback "(No update)" text
-        assert output[0]["content"][0]["text"] == "(No update)"
+        assert output[0]["content"][0]["text"] == ""
+
+    async def test_stop_with_no_output_saves_empty_history_message(self, mock_stream_response):
+        """Conversation history should match the empty assistant output on stop-without-text."""
+        lines = [
+            'data: {"choices":[{"delta":{},"finish_reason":"stop","index":0}],"model":"m"}',
+            'data: [DONE]',
+        ]
+        mock_resp = mock_stream_response(lines)
+        chat_req = {"messages": [{"role": "user", "content": "hi"}]}
+
+        _events = [parse_sse(e) async for e in process_chat_completions_stream(mock_resp, chat_req)]
+
+        assert len(conversation_history) == 1
+        saved_key = list(conversation_history.keys())[0]
+        saved_msgs = conversation_history[saved_key]
+        assistant_msgs = [m for m in saved_msgs if m["role"] == "assistant"]
+        assert len(assistant_msgs) == 1
+        assert assistant_msgs[0]["content"] == ""
+
+    async def test_stop_with_no_output_emits_added_before_done(self, mock_stream_response):
+        """Empty stop responses should still emit a valid message item lifecycle."""
+        lines = [
+            'data: {"choices":[{"delta":{},"finish_reason":"stop","index":0}],"model":"m"}',
+            'data: [DONE]',
+        ]
+        mock_resp = mock_stream_response(lines)
+
+        events = [parse_sse(e) async for e in process_chat_completions_stream(mock_resp)]
+        event_types = [e["type"] for e in events]
+
+        assert "response.output_item.added" in event_types
+        assert "response.content_part.added" in event_types
+        assert "response.output_item.done" in event_types
+        assert event_types.index("response.output_item.added") < event_types.index("response.output_item.done")
+        assert event_types.index("response.content_part.added") < event_types.index("response.output_item.done")

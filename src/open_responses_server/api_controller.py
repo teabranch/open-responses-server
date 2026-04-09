@@ -5,55 +5,66 @@ from fastapi.responses import StreamingResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 
 from open_responses_server.common.config import logger, HEARTBEAT_INTERVAL, STREAM_TIMEOUT
-from open_responses_server.common.llm_client import startup_llm_client, shutdown_llm_client, LLMClient
+from open_responses_server.common.llm_client import (
+    startup_llm_client,
+    shutdown_llm_client,
+    LLMClient,
+)
 from open_responses_server.common.mcp_manager import mcp_manager
 from open_responses_server.responses_service import convert_responses_to_chat_completions, process_chat_completions_stream
 from open_responses_server.chat_completions_service import handle_chat_completions
 
-_HEARTBEAT = object()
+_STREAM_DONE = object()
+_STREAM_ERROR = object()
+_HEARTBEAT_EVENT = 'event: response.heartbeat\ndata: {"type":"response.heartbeat"}\n\n'
 
 
-async def _with_heartbeat(async_gen, interval):
-    """Wrap an async generator to yield _HEARTBEAT sentinels during idle periods.
+async def _stream_with_keepalive(async_iter_factory, interval, keepalive_event=_HEARTBEAT_EVENT):
+    """Yield keepalive comments while a producer waits on upstream stream activity.
 
-    Uses asyncio.wait with timeout so the underlying task is never cancelled.
-    This keeps SSE connections alive when the backend LLM is slow to respond.
+    Starts the client-facing SSE stream immediately and runs the upstream work
+    in a background task, so heartbeats continue even before the backend stream
+    context manager yields control. The heartbeat is a real SSE data event so
+    clients like Codex reset idle timers after parsing it.
     """
     if not interval or interval <= 0:
         interval = 1.0
 
-    inner = async_gen.__aiter__()
-    task = None
+    queue = asyncio.Queue()
+
+    async def producer():
+        try:
+            async for item in async_iter_factory():
+                await queue.put(item)
+        except Exception as exc:
+            await queue.put((_STREAM_ERROR, exc))
+        finally:
+            await queue.put(_STREAM_DONE)
+
+    task = asyncio.create_task(producer())
     try:
         while True:
-            task = asyncio.ensure_future(inner.__anext__())
-            while not task.done():
-                done, _ = await asyncio.wait({task}, timeout=interval)
-                if not done:
-                    yield _HEARTBEAT
             try:
-                yield task.result()
-            except StopAsyncIteration:
-                return
-            finally:
-                task = None
+                item = await asyncio.wait_for(queue.get(), timeout=interval)
+            except asyncio.TimeoutError:
+                logger.debug("[STREAM-HEARTBEAT] Sending SSE keepalive")
+                yield keepalive_event
+                continue
+
+            if item is _STREAM_DONE:
+                break
+
+            if isinstance(item, tuple) and len(item) == 2 and item[0] is _STREAM_ERROR:
+                raise item[1]
+
+            yield item
     finally:
-        await _cleanup_heartbeat(task, inner)
-
-
-async def _cleanup_heartbeat(task, inner):
-    """Cancel in-flight task and close the underlying async iterator."""
-    if task is not None and not task.done():
-        task.cancel()
-        try:
-            await task
-        except asyncio.CancelledError:
-            raise
-    if hasattr(inner, "aclose"):
-        try:
-            await inner.aclose()
-        except Exception:
-            logger.debug("Error closing heartbeat inner iterator", exc_info=True)
+        if not task.done():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
 
 
 app = FastAPI(
@@ -220,101 +231,101 @@ async def create_response(request: Request):
             # Handle streaming response
             async def stream_response():
                 try:
-                    # Fetch available MCP tools and format as functions for chat.completions
-                    mcp_functions = []
-                    for server in mcp_manager.mcp_servers:
-                        try:
-                            for t in await server.list_tools():
-                                mcp_functions.append({
-                                    "name": t["name"],
-                                    "description": t.get("description"),
-                                    "parameters": t.get("parameters", {}),
-                                })
-                        except Exception as e:
-                            logger.warning(f"Error listing tools from {server.name}: {e}")
-                    # Only include functions if we have them
-                    if mcp_functions:
-                        # Convert to the "tools" format which is more broadly supported
-                        existing_tools = chat_request.get("tools", [])
-                        existing_functions = chat_request.get("functions", [])
-                        
-                        # Convert any existing functions to tools format
-                        for func in existing_functions:
-                            existing_tools.append({
-                                "type": "function",
-                                "function": func
-                            })
-                        
-                        # Get the names of existing tools to avoid duplicates
-                        existing_tool_names = set()
-                        for tool in existing_tools:
-                            if isinstance(tool, dict) and "function" in tool and "name" in tool["function"]:
-                                existing_tool_names.add(tool["function"]["name"])
-                            elif isinstance(tool, dict) and "name" in tool:
-                                existing_tool_names.add(tool["name"])
-                        
-                        # Only add MCP functions that don't conflict with existing tools
-                        for func in mcp_functions:
-                            if func["name"] not in existing_tool_names:
-                                existing_tools.append({
-                                    "type": "function",
-                                    "function": func
-                                })
+                    async def llm_event_stream():
+                        # Fetch available MCP tools and format as functions for chat.completions
+                        mcp_functions = []
+                        for server in mcp_manager.mcp_servers:
+                            try:
+                                for t in await server.list_tools():
+                                    mcp_functions.append({
+                                        "name": t["name"],
+                                        "description": t.get("description"),
+                                        "parameters": t.get("parameters", {}),
+                                    })
+                            except Exception as e:
+                                logger.warning(f"Error listing tools from {server.name}: {e}")
+                        # Only include functions if we have them
+                        if mcp_functions:
+                            # Convert to the "tools" format which is more broadly supported
+                            existing_tools = chat_request.get("tools", [])
+                            existing_functions = chat_request.get("functions", [])
                             
-                        # Set the tools and remove functions
-                        chat_request["tools"] = existing_tools
-                        chat_request.pop("functions", None)
-                        
-                        logger.info(f"Converted {len(existing_functions)} existing functions and {len(mcp_functions)} MCP functions to tools format")
-                    elif "functions" in chat_request:
-                        # Convert any existing functions to tools format
-                        existing_tools = chat_request.get("tools", [])
-                        existing_functions = chat_request.get("functions", [])
-                        
-                        if existing_functions:
-                            # Convert functions to tools format
+                            # Convert any existing functions to tools format
                             for func in existing_functions:
                                 existing_tools.append({
                                     "type": "function",
                                     "function": func
                                 })
+                            
+                            # Get the names of existing tools to avoid duplicates
+                            existing_tool_names = set()
+                            for tool in existing_tools:
+                                if isinstance(tool, dict) and "function" in tool and "name" in tool["function"]:
+                                    existing_tool_names.add(tool["function"]["name"])
+                                elif isinstance(tool, dict) and "name" in tool:
+                                    existing_tool_names.add(tool["name"])
+                            
+                            # Only add MCP functions that don't conflict with existing tools
+                            for func in mcp_functions:
+                                if func["name"] not in existing_tool_names:
+                                    existing_tools.append({
+                                        "type": "function",
+                                        "function": func
+                                    })
                                 
+                            # Set the tools and remove functions
                             chat_request["tools"] = existing_tools
-                            logger.info(f"Converted {len(existing_functions)} existing functions to tools format")
-                        
-                        # Remove the functions key regardless
-                        chat_request.pop("functions", None)
-                        
-                        if not chat_request.get("tools"):
-                            # If we don't have any tools either, remove that key
-                            chat_request.pop("tools", None)
-                            logger.info("No tools or functions available, sending without them")
-                    # Log the initial Chat Completions request payload
-                    logger.info(f"Sending Chat Completions request: {json.dumps(chat_request)}")
-                    client = await LLMClient.get_client()
-                    async with client.stream(
-                        "POST",
-                        "/v1/chat/completions",
-                        json=chat_request,
-                        timeout=STREAM_TIMEOUT
-                    ) as response:
-                        logger.info(f"Stream request status: {response.status_code}")
-                        
-                        if response.status_code != 200:
-                            error_content = await response.aread()
-                            logger.error(f"Error from LLM API: {error_content}")
-                            yield f"data: {json.dumps({'type': 'error', 'error': {'message': f'Error from LLM API: {response.status_code}'}})}\n\n"
-                            return
-                        
-                        async for event in _with_heartbeat(
-                            process_chat_completions_stream(response, chat_request),
-                            HEARTBEAT_INTERVAL
-                        ):
-                            if event is _HEARTBEAT:
-                                logger.debug("[STREAM-HEARTBEAT] Sending SSE keepalive")
-                                yield ": heartbeat\n\n"
-                            else:
+                            chat_request.pop("functions", None)
+                            
+                            logger.info(f"Converted {len(existing_functions)} existing functions and {len(mcp_functions)} MCP functions to tools format")
+                        elif "functions" in chat_request:
+                            # Convert any existing functions to tools format
+                            existing_tools = chat_request.get("tools", [])
+                            existing_functions = chat_request.get("functions", [])
+                            
+                            if existing_functions:
+                                # Convert functions to tools format
+                                for func in existing_functions:
+                                    existing_tools.append({
+                                        "type": "function",
+                                        "function": func
+                                    })
+                                    
+                                chat_request["tools"] = existing_tools
+                                logger.info(f"Converted {len(existing_functions)} existing functions to tools format")
+                            
+                            # Remove the functions key regardless
+                            chat_request.pop("functions", None)
+                            
+                            if not chat_request.get("tools"):
+                                # If we don't have any tools either, remove that key
+                                chat_request.pop("tools", None)
+                                logger.info("No tools or functions available, sending without them")
+                        # Log the initial Chat Completions request payload
+                        logger.info(f"Sending Chat Completions request: {json.dumps(chat_request)}")
+                        client = await LLMClient.get_client()
+                        async with client.stream(
+                            "POST",
+                            "/v1/chat/completions",
+                            json=chat_request,
+                            timeout=STREAM_TIMEOUT
+                        ) as response:
+                            logger.info(f"Stream request status: {response.status_code}")
+                            
+                            if response.status_code != 200:
+                                error_content = await response.aread()
+                                logger.error(f"Error from LLM API: {error_content}")
+                                yield f"data: {json.dumps({'type': 'error', 'error': {'message': f'Error from LLM API: {response.status_code}'}})}\n\n"
+                                return
+                            
+                            async for event in process_chat_completions_stream(response, chat_request):
                                 yield event
+
+                    async for event in _stream_with_keepalive(
+                        llm_event_stream,
+                        HEARTBEAT_INTERVAL
+                    ):
+                        yield event
                 except Exception as e:
                     logger.error(f"Error in stream_response: {str(e)}")
                     yield f"data: {json.dumps({'type': 'error', 'error': {'message': str(e)}})}\n\n"
@@ -386,12 +397,24 @@ async def proxy_endpoint(request: Request, path_name: str):
 
         if is_stream:
             async def stream_proxy():
-                async with client.stream(request.method, url, headers=headers, content=body, timeout=STREAM_TIMEOUT) as response:
+                async with client.stream(
+                    request.method,
+                    url,
+                    headers=headers,
+                    content=body,
+                    timeout=STREAM_TIMEOUT
+                ) as response:
                     async for chunk in response.aiter_bytes():
                         yield chunk
             return StreamingResponse(stream_proxy(), media_type=request.headers.get('accept', 'application/json'))
         else:
-            response = await client.request(request.method, url, headers=headers, content=body, timeout=STREAM_TIMEOUT)
+            response = await client.request(
+                request.method,
+                url,
+                headers=headers,
+                content=body,
+                timeout=STREAM_TIMEOUT
+            )
             return Response(content=response.content, status_code=response.status_code, headers=response.headers)
             
     except Exception as e:

@@ -8,7 +8,7 @@ from unittest.mock import patch, MagicMock, AsyncMock
 from fastapi.testclient import TestClient
 from fastapi.responses import StreamingResponse
 
-from open_responses_server.api_controller import app, _with_heartbeat, _HEARTBEAT
+from open_responses_server.api_controller import app, _stream_with_keepalive, _HEARTBEAT_EVENT
 
 
 class TestResponsesEndpoint:
@@ -172,6 +172,58 @@ class TestResponsesEndpoint:
         response = client.post("/responses", json=request_data)
         assert response.status_code == 200
 
+    def test_responses_streaming_sends_keepalive_before_backend_yields(self, client, mock_llm_client_fixture, monkeypatch):
+        """POST /responses emits SSE heartbeat events while backend setup is still waiting."""
+        monkeypatch.setattr("open_responses_server.api_controller.HEARTBEAT_INTERVAL", 0.05)
+
+        mock_client = mock_llm_client_fixture
+
+        mock_stream_resp = MagicMock()
+        mock_stream_resp.status_code = 200
+
+        async def delayed_enter(*_args, **_kwargs):
+            await asyncio.sleep(0.16)
+            return mock_stream_resp
+
+        mock_stream_resp.__aenter__ = delayed_enter
+        mock_stream_resp.__aexit__ = AsyncMock(return_value=False)
+
+        async def fake_aiter_lines():
+            yield 'data: {"choices":[{"delta":{"content":"Hi"},"index":0}],"model":"test"}'
+            yield 'data: [DONE]'
+
+        mock_stream_resp.aiter_lines = fake_aiter_lines
+        mock_stream_resp.aread = AsyncMock(return_value=b'error')
+        mock_client.stream = MagicMock(return_value=mock_stream_resp)
+
+        request_data = {
+            "model": "test-model",
+            "input": [{"type": "message", "role": "user", "content": [{"type": "input_text", "text": "Hello"}]}],
+            "stream": True,
+        }
+
+        with client.stream("POST", "/responses", json=request_data) as response:
+            assert response.status_code == 200
+
+            lines = []
+            for idx, line in enumerate(response.iter_lines(), start=1):
+                if line:
+                    lines.append(line)
+                if 'event: response.heartbeat' in lines and any(
+                    item.startswith('data: {"type":"response.heartbeat"}') for item in lines
+                ):
+                    break
+                if any(
+                    item.startswith("data: ") and 'response.created' in item for item in lines
+                ):
+                    break
+                if idx >= 20:
+                    pytest.fail(f"Timed out waiting for heartbeat/data lines: {lines}")
+
+        assert 'event: response.heartbeat' in lines
+        assert any(item.startswith('data: {"type":"response.heartbeat"}') for item in lines)
+        assert any(item.startswith("data: ") for item in lines)
+
 
 class TestChatCompletionsEndpoint:
     @pytest.fixture
@@ -277,63 +329,53 @@ class TestProxyEndpoint:
 
 
 @pytest.mark.asyncio
-class TestWithHeartbeat:
-    """Tests for the _with_heartbeat async generator wrapper."""
+class TestStreamWithKeepalive:
+    """Tests for heartbeat events while upstream setup is still waiting."""
 
-    async def test_fast_generator_no_heartbeats(self):
-        """Fast generators produce no heartbeat sentinels."""
-        async def fast_gen():
-            yield "a"
-            yield "b"
-            yield "c"
+    async def test_fast_stream_emits_no_heartbeats(self):
+        """Immediate upstream items should pass through without heartbeat events."""
+        async def fast_stream():
+            yield "data: first\n\n"
+            yield "data: second\n\n"
 
-        results = [item async for item in _with_heartbeat(fast_gen(), interval=10.0)]
-        assert results == ["a", "b", "c"]
-        assert _HEARTBEAT not in results
+        results = [item async for item in _stream_with_keepalive(fast_stream, interval=1.0)]
 
-    async def test_slow_generator_emits_heartbeats(self):
-        """Slow generators trigger heartbeat sentinels between items."""
-        async def slow_gen():
-            yield "first"
-            await asyncio.sleep(0.6)
-            yield "second"
+        assert results == ["data: first\n\n", "data: second\n\n"]
 
-        results = [item async for item in _with_heartbeat(slow_gen(), interval=0.2)]
-        # Should have at least one heartbeat between "first" and "second"
-        heartbeats = [r for r in results if r is _HEARTBEAT]
-        data = [r for r in results if r is not _HEARTBEAT]
-        assert len(heartbeats) >= 1
-        assert data == ["first", "second"]
+    async def test_emits_keepalives_before_first_upstream_item(self):
+        """Heartbeat events should flow before the upstream stream yields its first item."""
+        async def delayed_stream():
+            await asyncio.sleep(0.35)
+            yield "data: first\n\n"
 
-    async def test_empty_generator(self):
-        """Empty generator produces no output."""
-        async def empty_gen():
+        results = [item async for item in _stream_with_keepalive(delayed_stream, interval=0.1)]
+
+        heartbeats = [item for item in results if item == _HEARTBEAT_EVENT]
+        data = [item for item in results if item != _HEARTBEAT_EVENT]
+
+        assert len(heartbeats) >= 2
+        assert data == ["data: first\n\n"]
+
+    async def test_empty_stream_produces_no_output(self):
+        """An upstream stream that completes immediately should stay silent."""
+        async def empty_stream():
             return
-            yield  # noqa: unreachable - makes this an async generator
+            yield  # noqa: unreachable - keeps this as an async generator
 
-        results = [item async for item in _with_heartbeat(empty_gen(), interval=1.0)]
+        results = [item async for item in _stream_with_keepalive(empty_stream, interval=0.1)]
+
         assert results == []
 
-    async def test_generator_exception_propagates(self):
-        """Exceptions from the wrapped generator propagate through."""
-        async def error_gen():
-            yield "ok"
-            raise ValueError("test error")
+    async def test_error_propagates_after_heartbeats(self):
+        """Producer exceptions should surface to the consumer."""
+        async def error_stream():
+            await asyncio.sleep(0.15)
+            raise ValueError("upstream failed")
+            yield  # noqa: unreachable - keeps this as an async generator
 
         results = []
-        with pytest.raises(ValueError, match="test error"):
-            async for item in _with_heartbeat(error_gen(), interval=1.0):
+        with pytest.raises(ValueError, match="upstream failed"):
+            async for item in _stream_with_keepalive(error_stream, interval=0.05):
                 results.append(item)
-        assert results == ["ok"]
 
-    async def test_heartbeat_count_scales_with_delay(self):
-        """Longer delays produce more heartbeats."""
-        async def very_slow_gen():
-            yield "start"
-            await asyncio.sleep(1.0)
-            yield "end"
-
-        results = [item async for item in _with_heartbeat(very_slow_gen(), interval=0.2)]
-        heartbeats = [r for r in results if r is _HEARTBEAT]
-        # ~1.0s delay / 0.2s interval = ~5 heartbeats (allow some variance)
-        assert len(heartbeats) >= 3
+        assert _HEARTBEAT_EVENT in results

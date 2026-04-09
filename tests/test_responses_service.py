@@ -1099,3 +1099,21 @@ class TestProcessChatCompletionsStream:
         output = completed[0]["response"]["output"]
         assert len(output) >= 1
         assert output[0]["content"][0]["text"] == ""
+
+    async def test_stop_with_no_output_saves_empty_history_message(self, mock_stream_response):
+        """Conversation history should match the empty assistant output on stop-without-text."""
+        lines = [
+            'data: {"choices":[{"delta":{},"finish_reason":"stop","index":0}],"model":"m"}',
+            'data: [DONE]',
+        ]
+        mock_resp = mock_stream_response(lines)
+        chat_req = {"messages": [{"role": "user", "content": "hi"}]}
+
+        _events = [parse_sse(e) async for e in process_chat_completions_stream(mock_resp, chat_req)]
+
+        assert len(conversation_history) == 1
+        saved_key = list(conversation_history.keys())[0]
+        saved_msgs = conversation_history[saved_key]
+        assistant_msgs = [m for m in saved_msgs if m["role"] == "assistant"]
+        assert len(assistant_msgs) == 1
+        assert assistant_msgs[0]["content"] == ""

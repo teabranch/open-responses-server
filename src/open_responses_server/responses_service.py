@@ -969,7 +969,7 @@ async def process_chat_completions_stream(response, chat_request=None):
                                 # Add the assistant response to the conversation history
                                 messages.append({
                                     "role": "assistant",
-                                    "content": output_text_content or "(No update)"
+                                    "content": final_text
                                 })
                                 
                                 # Store in conversation history

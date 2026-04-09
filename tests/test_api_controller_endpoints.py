@@ -379,3 +379,26 @@ class TestStreamWithKeepalive:
                 results.append(item)
 
         assert _HEARTBEAT_EVENT in results
+
+    async def test_bounded_queue_preserves_backpressure(self):
+        """The wrapper should not let the producer run far ahead of a slow consumer."""
+        produced = 0
+        producer_done = asyncio.Event()
+
+        async def fast_stream():
+            nonlocal produced
+            for idx in range(5):
+                produced += 1
+                yield f"data: item-{idx}\n\n"
+            producer_done.set()
+
+        consumed = 0
+        async for item in _stream_with_keepalive(fast_stream, interval=1.0):
+            await asyncio.sleep(0.05)
+            consumed += 1
+            if consumed == 1:
+                assert produced < 5
+                assert not producer_done.is_set()
+
+        assert consumed == 5
+        assert producer_done.is_set()

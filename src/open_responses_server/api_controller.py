@@ -31,7 +31,9 @@ async def _stream_with_keepalive(async_iter_factory, interval, keepalive_event=_
     if not interval or interval <= 0:
         interval = 1.0
 
-    queue = asyncio.Queue()
+    # Keep just one prefetched item so heartbeats can cover upstream waits
+    # without breaking normal stream backpressure for slow clients.
+    queue = asyncio.Queue(maxsize=1)
 
     async def producer():
         try:

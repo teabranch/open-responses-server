@@ -656,12 +656,12 @@ class TestProcessChatCompletionsStream:
         done_evts = [e for e in events if e["type"] == "response.function_call_arguments.done"]
         assert len(done_evts) >= 1
 
-        # The tool call in the completed response should have status "ready"
+        # The tool call in the completed response should have status "completed"
         completed = [e for e in events if e["type"] == "response.completed"]
         assert len(completed) == 1
         fc_items = [o for o in completed[0]["response"]["output"] if o.get("type") == "function_call"]
         assert len(fc_items) >= 1
-        assert fc_items[0]["status"] == "ready"
+        assert fc_items[0]["status"] == "completed"
 
     async def test_function_call_finish_with_mcp_tool(
         self, mock_stream_response, mock_mcp_manager_fixture
@@ -719,7 +719,7 @@ class TestProcessChatCompletionsStream:
         fc_items = [o for o in completed[0]["response"]["output"] if o.get("type") == "function_call"]
         assert len(fc_items) >= 1
         assert fc_items[0]["name"] == "client_tool"
-        assert fc_items[0]["status"] == "ready"
+        assert fc_items[0]["status"] == "completed"
 
     async def test_conversation_history_saved_on_stop(self, mock_stream_response):
         """Conversation history is saved when finish_reason is 'stop'."""
@@ -863,7 +863,7 @@ class TestProcessChatCompletionsStream:
     async def test_tool_calls_created_event_emitted(
         self, mock_stream_response, mock_mcp_manager_fixture
     ):
-        """When a tool call is first seen, an in_progress event is emitted."""
+        """When a tool call is first seen, an output_item.added event is emitted."""
         mock_mcp = mock_mcp_manager_fixture
         mock_mcp.is_mcp_tool.return_value = False
 
@@ -877,10 +877,16 @@ class TestProcessChatCompletionsStream:
 
         events = [parse_sse(e) async for e in process_chat_completions_stream(mock_resp, chat_req)]
 
-        # Should have in_progress event for the tool call
-        in_progress = [e for e in events if e["type"] == "response.in_progress"]
-        # At least 2: one initial, one when tool call is created
-        assert len(in_progress) >= 2
+        # Should have output_item.added event for the tool call
+        item_added = [e for e in events if e["type"] == "response.output_item.added"]
+        assert len(item_added) >= 1
+        assert item_added[0]["item"]["type"] == "function_call"
+        assert item_added[0]["item"]["status"] == "in_progress"
+
+        # Should also have output_item.done event
+        item_done = [e for e in events if e["type"] == "response.output_item.done"]
+        assert len(item_done) >= 1
+        assert item_done[0]["item"]["status"] == "completed"
 
     async def test_function_call_legacy_created_event(
         self, mock_stream_response, mock_mcp_manager_fixture
@@ -1030,7 +1036,7 @@ class TestProcessChatCompletionsStream:
         assert created[0]["response"]["id"].startswith("resp_")
 
     async def test_stop_with_no_output_adds_empty_message(self, mock_stream_response):
-        """Stop finish_reason with empty output_text adds message with fallback text."""
+        """Stop finish_reason with empty output_text adds message with empty text."""
         lines = [
             'data: {"choices":[{"delta":{},"finish_reason":"stop","index":0}],"model":"m"}',
             'data: [DONE]',
@@ -1042,5 +1048,4 @@ class TestProcessChatCompletionsStream:
         assert len(completed) >= 1
         output = completed[0]["response"]["output"]
         assert len(output) >= 1
-        # Should have the fallback "(No update)" text
-        assert output[0]["content"][0]["text"] == "(No update)"
+        assert output[0]["content"][0]["text"] == ""

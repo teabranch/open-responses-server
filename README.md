@@ -104,8 +104,18 @@ API_ADAPTER_PORT=8080
 ```
 Streaming and connection:
 ```
-STREAM_TIMEOUT=120.0                # HTTP timeout (seconds) for streaming requests
-HEARTBEAT_INTERVAL=15.0             # SSE keepalive interval (seconds)
+STREAM_TIMEOUT=120.0                # Backend read timeout (seconds) for slow streaming responses
+BACKEND_CONNECT_TIMEOUT=30.0        # Backend connect/pool timeout (seconds)
+HEARTBEAT_INTERVAL=15.0             # SSE heartbeat event interval (seconds)
+```
+
+For slow local models such as 31B dense or larger, Codex CLI may also need a
+longer client-side idle timeout:
+
+```toml
+# ~/.codex/config.toml
+[model_providers.llamacpp]
+stream_idle_timeout_ms = 900000  # 15 minutes
 ```
 Conversation and tool handling:
 ```
@@ -188,4 +198,3 @@ TeaBranch. (2025). open-responses-server: Open-source server the serves any AI p
 This repo had changed names:
 - openai-responses-server (Changed to avoid brand name OpenAI)
 - open-responses-server 
-

@@ -1,12 +1,14 @@
 """
 Tests for the LLM client module.
 """
+import httpx
 import pytest
 from unittest.mock import patch, AsyncMock, MagicMock
-import httpx
 
+from open_responses_server.common.config import STREAM_TIMEOUT, BACKEND_CONNECT_TIMEOUT
 from open_responses_server.common.llm_client import (
     LLMClient,
+    get_backend_timeout,
     startup_llm_client,
     shutdown_llm_client,
 )
@@ -21,12 +23,22 @@ def reset_llm_client():
 
 
 class TestLLMClient:
+    def test_backend_timeout_uses_long_read_and_short_connect(self):
+        """Backend timeout should keep connect short while allowing slow reads."""
+        timeout = get_backend_timeout()
+        assert timeout.connect == BACKEND_CONNECT_TIMEOUT
+        assert timeout.pool == BACKEND_CONNECT_TIMEOUT
+        assert timeout.read == STREAM_TIMEOUT
+        assert timeout.write == STREAM_TIMEOUT
+
     @pytest.mark.asyncio
     async def test_get_client_creates_instance(self):
         """get_client creates an httpx.AsyncClient on first call."""
         client = await LLMClient.get_client()
         assert client is not None
         assert isinstance(client, httpx.AsyncClient)
+        assert client.timeout.connect == BACKEND_CONNECT_TIMEOUT
+        assert client.timeout.read == STREAM_TIMEOUT
         await client.aclose()
 
     @pytest.mark.asyncio

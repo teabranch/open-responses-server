@@ -1,6 +1,18 @@
 import httpx
 from .config import OPENAI_BASE_URL_INTERNAL, OPENAI_API_KEY, STREAM_TIMEOUT, logger
 
+BACKEND_CONNECT_TIMEOUT = 30.0
+
+
+def get_backend_timeout() -> httpx.Timeout:
+    """Use a long read timeout for slow local inference, but keep connect short."""
+    return httpx.Timeout(
+        connect=BACKEND_CONNECT_TIMEOUT,
+        read=STREAM_TIMEOUT,
+        write=STREAM_TIMEOUT,
+        pool=BACKEND_CONNECT_TIMEOUT,
+    )
+
 class LLMClient:
     """
     An asynchronous client for interacting with the LLM API.
@@ -18,7 +30,7 @@ class LLMClient:
             cls._client = httpx.AsyncClient(
                 base_url=OPENAI_BASE_URL_INTERNAL,
                 headers={"Authorization": f"Bearer {OPENAI_API_KEY}"},
-                timeout=httpx.Timeout(STREAM_TIMEOUT)
+                timeout=get_backend_timeout()
             )
         return cls._client
 

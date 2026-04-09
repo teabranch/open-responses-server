@@ -72,8 +72,8 @@ All configuration is via environment variables, loaded from `.env` via
 | `MCP_SERVERS_CONFIG_PATH` | `src/open_responses_server/servers_config.json` | Path to MCP servers JSON config (use absolute path when pip-installed) |
 | `MAX_CONVERSATION_HISTORY` | `100` | Max stored conversation entries |
 | `MAX_TOOL_CALL_ITERATIONS` | `25` | Max tool-call loop iterations |
-| `STREAM_TIMEOUT` | `120.0` | HTTP timeout (seconds) for streaming requests |
-| `HEARTBEAT_INTERVAL` | `15.0` | SSE keepalive interval (seconds) |
+| `STREAM_TIMEOUT` | `120.0` | Backend read timeout in seconds; connect timeout stays at 30s |
+| `HEARTBEAT_INTERVAL` | `15.0` | SSE heartbeat event interval in seconds |
 | `LOG_LEVEL` | `INFO` | Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL) |
 | `LOG_FILE_PATH` | `./log/api_adapter.log` | Path to log file |
 

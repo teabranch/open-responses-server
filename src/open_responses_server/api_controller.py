@@ -4,11 +4,12 @@ from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import StreamingResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 
-from open_responses_server.common.config import logger, HEARTBEAT_INTERVAL, STREAM_TIMEOUT
+from open_responses_server.common.config import logger, HEARTBEAT_INTERVAL
 from open_responses_server.common.llm_client import (
     startup_llm_client,
     shutdown_llm_client,
     LLMClient,
+    get_backend_timeout,
 )
 from open_responses_server.common.mcp_manager import mcp_manager
 from open_responses_server.responses_service import convert_responses_to_chat_completions, process_chat_completions_stream
@@ -308,7 +309,7 @@ async def create_response(request: Request):
                             "POST",
                             "/v1/chat/completions",
                             json=chat_request,
-                            timeout=STREAM_TIMEOUT
+                            timeout=get_backend_timeout()
                         ) as response:
                             logger.info(f"Stream request status: {response.status_code}")
                             
@@ -402,7 +403,7 @@ async def proxy_endpoint(request: Request, path_name: str):
                     url,
                     headers=headers,
                     content=body,
-                    timeout=STREAM_TIMEOUT
+                    timeout=get_backend_timeout()
                 ) as response:
                     async for chunk in response.aiter_bytes():
                         yield chunk
@@ -413,7 +414,7 @@ async def proxy_endpoint(request: Request, path_name: str):
                 url,
                 headers=headers,
                 content=body,
-                timeout=STREAM_TIMEOUT
+                timeout=get_backend_timeout()
             )
             return Response(content=response.content, status_code=response.status_code, headers=response.headers)
             

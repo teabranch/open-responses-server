@@ -14,6 +14,11 @@ from open_responses_server.models.responses_models import (
 # Global dictionary to store conversation history by response ID
 conversation_history: Dict[str, List[Dict[str, Any]]] = {}
 
+# Cache reasoning_content (CoT) keyed by tool call_id for passback
+# When llama-server returns reasoning_content + tool_calls, we store it here.
+# When Codex CLI sends those call_ids back in the next request, we inject the reasoning.
+reasoning_content_cache: Dict[str, str] = {}
+
 def current_timestamp() -> int:
     return int(time.time())
 
@@ -173,7 +178,13 @@ def convert_responses_to_chat_completions(request_data: dict) -> dict:
                     call_id = item.get("call_id", item.get("id", f"call_{uuid.uuid4().hex}"))
                     tool_name = item.get("name", "")
                     arguments = item.get("arguments", "{}")
-                    logger.info(f"[INPUT] function_call: name={tool_name} call_id={call_id}")
+
+                    # Look up cached reasoning_content for CoT passback
+                    cached_reasoning = reasoning_content_cache.get(call_id, "")
+                    if cached_reasoning:
+                        logger.info(f"[INPUT] function_call: name={tool_name} call_id={call_id} +reasoning={len(cached_reasoning)} chars")
+                    else:
+                        logger.info(f"[INPUT] function_call: name={tool_name} call_id={call_id}")
 
                     # Group consecutive function_calls into one assistant message
                     # Check if the last message is an assistant with tool_calls
@@ -183,6 +194,9 @@ def convert_responses_to_chat_completions(request_data: dict) -> dict:
                             "type": "function",
                             "function": {"name": tool_name, "arguments": arguments}
                         })
+                        # Merge reasoning: use longest (first call's reasoning covers all)
+                        if cached_reasoning and not messages[-1].get("reasoning_content"):
+                            messages[-1]["reasoning_content"] = cached_reasoning
                     else:
                         assistant_msg = {
                             "role": "assistant",
@@ -193,6 +207,8 @@ def convert_responses_to_chat_completions(request_data: dict) -> dict:
                                 "function": {"name": tool_name, "arguments": arguments}
                             }]
                         }
+                        if cached_reasoning:
+                            assistant_msg["reasoning_content"] = cached_reasoning
                         messages.append(assistant_msg)
 
                 # Handle function_call_output items (tool results)
@@ -352,6 +368,7 @@ async def process_chat_completions_stream(response, chat_request=None):
     tool_call_counter = 0
     message_id = f"msg_{uuid.uuid4().hex}"
     output_text_content = ""  # Track the full text content for logging
+    reasoning_content = ""  # Accumulate reasoning/CoT from model for passback
     request_start_time = time.time()
     last_chunk_time = request_start_time
     logger.info(f"[STREAM-START] response_id={response_id} message_id={message_id}")
@@ -607,6 +624,10 @@ async def process_chat_completions_stream(response, chat_request=None):
                             )
                             yield f"data: {json.dumps(text_event.dict())}\n\n"
 
+                        # Accumulate reasoning_content (CoT) from model for passback
+                        if "reasoning_content" in delta and delta["reasoning_content"] is not None:
+                            reasoning_content += delta["reasoning_content"]
+
                     if "finish_reason" in choice and choice["finish_reason"] is not None:
                         logger.info(f"Received finish_reason: {choice['finish_reason']}")
                         
@@ -671,6 +692,11 @@ async def process_chat_completions_stream(response, chat_request=None):
                                         "status": "completed"
                                     })
                                     
+                                # Cache reasoning for CoT passback
+                                if reasoning_content:
+                                    reasoning_content_cache[tool_call["id"]] = reasoning_content
+                                    logger.info(f"[COT-PASSBACK] Cached reasoning ({len(reasoning_content)} chars) for call_id={tool_call['id']}")
+
                                 # After tool handling, complete the response
                                 response_obj.status = "completed"
                                 completed_event = ResponseCompleted(
@@ -696,6 +722,10 @@ async def process_chat_completions_stream(response, chat_request=None):
                                             }
                                         }]
                                     }
+                                    # Preserve reasoning_content for CoT passback on tool call turns
+                                    if reasoning_content:
+                                        assistant_message["reasoning_content"] = reasoning_content
+                                        logger.info(f"[COT-PASSBACK] Stored {len(reasoning_content)} chars of reasoning_content in history")
                                     messages.append(assistant_message)
 
                                     # Add the tool response for immediate tools
@@ -809,6 +839,18 @@ async def process_chat_completions_stream(response, chat_request=None):
                                 else:
                                     logger.info(f"[TOOL-CALLS-FINISH] Non-MCP tool '{tool_call['function']['name']}' completed, client will execute")
 
+                            # Cache reasoning_content keyed by call_ids for CoT passback
+                            # When Codex CLI sends these call_ids back, we inject the reasoning
+                            if reasoning_content:
+                                for tc in tool_calls.values():
+                                    reasoning_content_cache[tc["id"]] = reasoning_content
+                                logger.info(f"[COT-PASSBACK] Cached reasoning ({len(reasoning_content)} chars) for {len(tool_calls)} call_ids")
+                                # Trim cache if too large (keep last 200 entries)
+                                if len(reasoning_content_cache) > 200:
+                                    excess_keys = sorted(reasoning_content_cache.keys())[:len(reasoning_content_cache) - 200]
+                                    for k in excess_keys:
+                                        del reasoning_content_cache[k]
+
                             # After processing all tool calls, complete the response
                             response_obj.status = "completed"
                             completed_event = ResponseCompleted(
@@ -834,6 +876,10 @@ async def process_chat_completions_stream(response, chat_request=None):
                                         }
                                     } for tool_call in tool_calls.values()]
                                 }
+                                # Preserve reasoning_content for CoT passback on tool call turns
+                                if reasoning_content:
+                                    assistant_message["reasoning_content"] = reasoning_content
+                                    logger.info(f"[COT-PASSBACK] Stored {len(reasoning_content)} chars of reasoning_content in history")
                                 messages.append(assistant_message)
 
                                 # Add tool responses for executed MCP tools

@@ -1,6 +1,7 @@
 import json
 import uuid
 import time
+from collections import OrderedDict
 from typing import Dict, List, Any
 
 from open_responses_server.common.config import logger, MAX_CONVERSATION_HISTORY
@@ -14,10 +15,10 @@ from open_responses_server.models.responses_models import (
 # Global dictionary to store conversation history by response ID
 conversation_history: Dict[str, List[Dict[str, Any]]] = {}
 
-# Cache reasoning_content (CoT) keyed by tool call_id for passback
-# When llama-server returns reasoning_content + tool_calls, we store it here.
-# When Codex CLI sends those call_ids back in the next request, we inject the reasoning.
-reasoning_content_cache: Dict[str, str] = {}
+# Cache reasoning_content (CoT) keyed by tool call_id for passback.
+# Keep a bounded insertion-ordered cache so recent tool-call chains can feed
+# reasoning back into the next request without unbounded growth.
+reasoning_content_cache: OrderedDict[str, str] = OrderedDict()
 
 def current_timestamp() -> int:
     return int(time.time())
@@ -33,6 +34,18 @@ def _stringify_tool_output(output: Any) -> str:
         return serialize_tool_result(output)
     except TypeError:
         return str(output)
+
+
+def _cache_reasoning_content(call_id: str, reasoning_content: str, max_entries: int = 200) -> None:
+    """Store reasoning content by call_id and evict oldest entries when bounded."""
+    if not call_id or not reasoning_content:
+        return
+
+    reasoning_content_cache[call_id] = reasoning_content
+    reasoning_content_cache.move_to_end(call_id)
+
+    while len(reasoning_content_cache) > max_entries:
+        reasoning_content_cache.popitem(last=False)
 
 def validate_message_sequence(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
@@ -712,10 +725,10 @@ async def process_chat_completions_stream(response, chat_request=None):
                                         "call_id": tool_call["id"],
                                         "status": "completed"
                                     })
-                                    
+                                
                                 # Cache reasoning for CoT passback
                                 if reasoning_content:
-                                    reasoning_content_cache[tool_call["id"]] = reasoning_content
+                                    _cache_reasoning_content(tool_call["id"], reasoning_content)
                                     logger.info(f"[COT-PASSBACK] Cached reasoning ({len(reasoning_content)} chars) for call_id={tool_call['id']}")
 
                                 # After tool handling, complete the response
@@ -864,13 +877,8 @@ async def process_chat_completions_stream(response, chat_request=None):
                             # When Codex CLI sends these call_ids back, we inject the reasoning
                             if reasoning_content:
                                 for tc in tool_calls.values():
-                                    reasoning_content_cache[tc["id"]] = reasoning_content
+                                    _cache_reasoning_content(tc["id"], reasoning_content)
                                 logger.info(f"[COT-PASSBACK] Cached reasoning ({len(reasoning_content)} chars) for {len(tool_calls)} call_ids")
-                                # Trim cache if too large (keep last 200 entries)
-                                if len(reasoning_content_cache) > 200:
-                                    excess_keys = sorted(reasoning_content_cache.keys())[:len(reasoning_content_cache) - 200]
-                                    for k in excess_keys:
-                                        del reasoning_content_cache[k]
 
                             # After processing all tool calls, complete the response
                             response_obj.status = "completed"

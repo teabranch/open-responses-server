@@ -16,6 +16,8 @@ from open_responses_server.responses_service import (
     validate_message_sequence,
     process_chat_completions_stream,
     conversation_history,
+    reasoning_content_cache,
+    _cache_reasoning_content,
 )
 
 
@@ -29,6 +31,15 @@ def parse_sse(raw: str) -> dict:
     if text.startswith("data: "):
         text = text[6:]
     return json.loads(text)
+
+
+@pytest.fixture(autouse=True)
+def clear_global_response_state():
+    conversation_history.clear()
+    reasoning_content_cache.clear()
+    yield
+    conversation_history.clear()
+    reasoning_content_cache.clear()
 
 
 # ===================================================================
@@ -130,6 +141,28 @@ class TestValidateMessageSequence:
         ]
         result = validate_message_sequence(messages)
         assert len(result) == 4
+
+
+class TestReasoningContentCache:
+    """Tests for reasoning_content cache eviction behavior."""
+
+    def test_cache_reasoning_content_evicts_oldest_entries(self):
+        """Cache should keep only the most recent bounded entries."""
+        _cache_reasoning_content("call_1", "r1", max_entries=2)
+        _cache_reasoning_content("call_2", "r2", max_entries=2)
+        _cache_reasoning_content("call_3", "r3", max_entries=2)
+
+        assert list(reasoning_content_cache.keys()) == ["call_2", "call_3"]
+
+    def test_cache_reasoning_content_refreshes_existing_key(self):
+        """Reinserting an existing call_id should move it to the newest position."""
+        _cache_reasoning_content("call_1", "r1", max_entries=2)
+        _cache_reasoning_content("call_2", "r2", max_entries=2)
+        _cache_reasoning_content("call_1", "r1-new", max_entries=2)
+        _cache_reasoning_content("call_3", "r3", max_entries=2)
+
+        assert list(reasoning_content_cache.keys()) == ["call_1", "call_3"]
+        assert reasoning_content_cache["call_1"] == "r1-new"
 
 
 # ===================================================================

@@ -932,6 +932,21 @@ async def process_chat_completions_stream(response, chat_request=None):
                             logger.info("Received stop finish reason")
 
                             final_text = output_text_content or ""
+                            has_message_output = any(
+                                output_item.get("type") == "message"
+                                for output_item in response_obj.output
+                            )
+
+                            if not has_message_output:
+                                added_msg_item = {
+                                    "id": message_id,
+                                    "type": "message",
+                                    "role": "assistant",
+                                    "status": "in_progress",
+                                    "content": []
+                                }
+                                yield f"data: {json.dumps({'type': 'response.output_item.added', 'output_index': 0, 'item': added_msg_item})}\n\n"
+                                yield f"data: {json.dumps({'type': 'response.content_part.added', 'item_id': message_id, 'output_index': 0, 'content_index': 0, 'part': {'type': 'output_text', 'text': '', 'annotations': []}})}\n\n"
 
                             # Emit text closing events: output_text.done, content_part.done, output_item.done
                             if final_text:

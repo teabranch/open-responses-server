@@ -1117,3 +1117,20 @@ class TestProcessChatCompletionsStream:
         assistant_msgs = [m for m in saved_msgs if m["role"] == "assistant"]
         assert len(assistant_msgs) == 1
         assert assistant_msgs[0]["content"] == ""
+
+    async def test_stop_with_no_output_emits_added_before_done(self, mock_stream_response):
+        """Empty stop responses should still emit a valid message item lifecycle."""
+        lines = [
+            'data: {"choices":[{"delta":{},"finish_reason":"stop","index":0}],"model":"m"}',
+            'data: [DONE]',
+        ]
+        mock_resp = mock_stream_response(lines)
+
+        events = [parse_sse(e) async for e in process_chat_completions_stream(mock_resp)]
+        event_types = [e["type"] for e in events]
+
+        assert "response.output_item.added" in event_types
+        assert "response.content_part.added" in event_types
+        assert "response.output_item.done" in event_types
+        assert event_types.index("response.output_item.added") < event_types.index("response.output_item.done")
+        assert event_types.index("response.content_part.added") < event_types.index("response.output_item.done")

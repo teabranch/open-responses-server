@@ -390,7 +390,8 @@ async def process_chat_completions_stream(response, chat_request=None):
     """
     tool_calls = {}  # Store tool calls being built
     response_id = f"resp_{uuid.uuid4().hex}"
-    tool_call_counter = 0
+    next_output_index = 0
+    message_output_index: int | None = None
     message_id = f"msg_{uuid.uuid4().hex}"
     output_text_content = ""  # Track the full text content for logging
     reasoning_content = ""  # Accumulate reasoning/CoT from model for passback
@@ -423,6 +424,54 @@ async def process_chat_completions_stream(response, chat_request=None):
     yield f"data: {json.dumps(in_progress_event.dict())}\n\n"
     
     chunk_counter = 0
+
+    def allocate_output_index() -> int:
+        """Reserve the next Responses output index for a newly added item."""
+        nonlocal next_output_index
+        output_index = next_output_index
+        next_output_index += 1
+        return output_index
+
+    def build_message_item(status: str, text: str | None = None) -> Dict[str, Any]:
+        content = []
+        if text is not None:
+            content = [{"type": "output_text", "text": text, "annotations": []}]
+        return {
+            "id": message_id,
+            "type": "message",
+            "role": "assistant",
+            "status": status,
+            "content": content,
+        }
+
+    def ensure_message_output_added() -> list[str]:
+        """Emit message item lifecycle start once and reserve its output index."""
+        nonlocal message_output_index
+        if message_output_index is not None:
+            return []
+
+        message_output_index = allocate_output_index()
+        msg_item = build_message_item("in_progress")
+        response_obj.output.append(msg_item)
+        return [
+            f"data: {json.dumps({'type': 'response.output_item.added', 'output_index': message_output_index, 'item': msg_item})}\n\n",
+            f"data: {json.dumps({'type': 'response.content_part.added', 'item_id': message_id, 'output_index': message_output_index, 'content_index': 0, 'part': {'type': 'output_text', 'text': '', 'annotations': []}})}\n\n",
+        ]
+
+    def finalize_message_output(final_text: str) -> tuple[int, Dict[str, Any]]:
+        """Update the message output item to its completed representation."""
+        nonlocal message_output_index
+        if message_output_index is None:
+            message_output_index = allocate_output_index()
+
+        final_msg_item = build_message_item("completed", final_text)
+        for idx, output_item in enumerate(response_obj.output):
+            if output_item.get("id") == message_id and output_item.get("type") == "message":
+                response_obj.output[idx] = final_msg_item
+                break
+        else:
+            response_obj.output.append(final_msg_item)
+        return message_output_index, final_msg_item
 
     def ensure_tool_call_added(tool_call: Dict[str, Any]) -> str | None:
         """Emit output_item.added once per tool call after its name becomes available."""
@@ -478,25 +527,17 @@ async def process_chat_completions_stream(response, chat_request=None):
                 # If we haven't already completed the response, do it now
                 if response_obj.status != "completed":
                     final_text = output_text_content or ""
+                    for payload in ensure_message_output_added():
+                        yield payload
+                    message_index, final_msg_item = finalize_message_output(final_text)
 
                     # Emit text closing events if we had text content
                     if final_text:
-                        yield f"data: {json.dumps({'type': 'response.output_text.done', 'item_id': message_id, 'output_index': 0, 'content_index': 0, 'text': final_text})}\n\n"
-                        yield f"data: {json.dumps({'type': 'response.content_part.done', 'item_id': message_id, 'output_index': 0, 'content_index': 0, 'part': {'type': 'output_text', 'text': final_text, 'annotations': []}})}\n\n"
+                        yield f"data: {json.dumps({'type': 'response.output_text.done', 'item_id': message_id, 'output_index': message_index, 'content_index': 0, 'text': final_text})}\n\n"
+                        yield f"data: {json.dumps({'type': 'response.content_part.done', 'item_id': message_id, 'output_index': message_index, 'content_index': 0, 'part': {'type': 'output_text', 'text': final_text, 'annotations': []}})}\n\n"
 
-                    final_msg_item = {
-                        "id": message_id,
-                        "type": "message",
-                        "role": "assistant",
-                        "status": "completed",
-                        "content": [{"type": "output_text", "text": final_text, "annotations": []}]
-                    }
+                    yield f"data: {json.dumps({'type': 'response.output_item.done', 'output_index': message_index, 'item': final_msg_item})}\n\n"
 
-                    # Emit output_item.done if we have text
-                    if final_text:
-                        yield f"data: {json.dumps({'type': 'response.output_item.done', 'output_index': 0, 'item': final_msg_item})}\n\n"
-
-                    response_obj.output = [final_msg_item] if final_text else response_obj.output
                     response_obj.status = "completed"
                     completed_event = ResponseCompleted(
                         type="response.completed",
@@ -504,14 +545,14 @@ async def process_chat_completions_stream(response, chat_request=None):
                     )
                     
                     # Save conversation history for DONE events if we have chat_request
-                    if chat_request and output_text_content:
+                    if chat_request:
                         # Get the existing messages from the request
                         messages = chat_request.get("messages", [])
                         
                         # Add the assistant response to the conversation history
                         messages.append({
                             "role": "assistant",
-                            "content": output_text_content
+                            "content": final_text
                         })
                         
                         # Store in conversation history
@@ -556,16 +597,17 @@ async def process_chat_completions_stream(response, chat_request=None):
                             index = 0
                             # Initialize tool call entry if first fragment
                             if index not in tool_calls:
+                                output_index = allocate_output_index()
                                 tool_calls[index] = {
                                     "id": f"call_{uuid.uuid4().hex}",
                                     "function": {"name": func.get("name", ""), "arguments": ""},
-                                    "output_index": 0
+                                    "output_index": output_index
                                 }
                                 # Emit created event for function call
                                 created_evt = ToolCallsCreated(
                                     type="response.tool_calls.created",
                                     item_id=tool_calls[index]["id"],
-                                    output_index=0,
+                                    output_index=output_index,
                                     tool_call={"id": tool_calls[index]["id"], "name": tool_calls[index]["function"]["name"], "arguments": ""}
                                 )
                                 yield f"data: {json.dumps(created_evt.dict())}\n\n"
@@ -577,7 +619,7 @@ async def process_chat_completions_stream(response, chat_request=None):
                                 delta_evt = ToolCallArgumentsDelta(
                                     type="response.function_call_arguments.delta",
                                     item_id=tool_calls[index]["id"],
-                                    output_index=0,
+                                    output_index=tool_calls[index]["output_index"],
                                     delta=fragment
                                 )
                                 yield f"data: {json.dumps(delta_evt.dict())}\n\n"
@@ -598,10 +640,9 @@ async def process_chat_completions_stream(response, chat_request=None):
                                             "name": tool_delta.get("function", {}).get("name", ""),
                                             "arguments": "",
                                         },
-                                        "output_index": tool_call_counter,
+                                        "output_index": allocate_output_index(),
                                         "added_emitted": False,
                                     }
-                                    tool_call_counter += 1
 
                                 tool_call = tool_calls[index]
 
@@ -632,27 +673,14 @@ async def process_chat_completions_stream(response, chat_request=None):
                             output_text_content += content_delta
 
                             # On first text chunk, emit output_item.added + content_part.added
-                            if not response_obj.output or not any(
-                                o.get("type") == "message" for o in response_obj.output
-                            ):
-                                msg_item = {
-                                    "id": message_id,
-                                    "type": "message",
-                                    "role": "assistant",
-                                    "status": "in_progress",
-                                    "content": []
-                                }
-                                response_obj.output.append(msg_item)
-                                # output_item.added
-                                yield f"data: {json.dumps({'type': 'response.output_item.added', 'output_index': 0, 'item': msg_item})}\n\n"
-                                # content_part.added
-                                yield f"data: {json.dumps({'type': 'response.content_part.added', 'item_id': message_id, 'output_index': 0, 'content_index': 0, 'part': {'type': 'output_text', 'text': '', 'annotations': []}})}\n\n"
+                            for payload in ensure_message_output_added():
+                                yield payload
 
                             # Emit text delta event
                             text_event = OutputTextDelta(
                                 type="response.output_text.delta",
                                 item_id=message_id,
-                                output_index=0,
+                                output_index=message_output_index,
                                 content_index=0,
                                 delta=content_delta
                             )
@@ -707,7 +735,7 @@ async def process_chat_completions_stream(response, chat_request=None):
                                     text_event = OutputTextDelta(
                                         type="response.output_text.delta",
                                         item_id=tool_call["id"],
-                                        output_index=0,
+                                        output_index=tool_call["output_index"],
                                         content_index=0,
                                         delta=text
                                     )
@@ -864,7 +892,7 @@ async def process_chat_completions_stream(response, chat_request=None):
                                     text_event = OutputTextDelta(
                                         type="response.output_text.delta",
                                         item_id=tool_call["id"],
-                                        output_index=0,
+                                        output_index=tool_call["output_index"],
                                         content_index=0,
                                         delta=text
                                     )
@@ -949,45 +977,23 @@ async def process_chat_completions_stream(response, chat_request=None):
                             logger.info("Received stop finish reason")
 
                             final_text = output_text_content or ""
-                            has_message_output = any(
-                                output_item.get("type") == "message"
-                                for output_item in response_obj.output
-                            )
-
-                            if not has_message_output:
-                                added_msg_item = {
-                                    "id": message_id,
-                                    "type": "message",
-                                    "role": "assistant",
-                                    "status": "in_progress",
-                                    "content": []
-                                }
-                                yield f"data: {json.dumps({'type': 'response.output_item.added', 'output_index': 0, 'item': added_msg_item})}\n\n"
-                                yield f"data: {json.dumps({'type': 'response.content_part.added', 'item_id': message_id, 'output_index': 0, 'content_index': 0, 'part': {'type': 'output_text', 'text': '', 'annotations': []}})}\n\n"
+                            for payload in ensure_message_output_added():
+                                yield payload
+                            message_index, final_msg_item = finalize_message_output(final_text)
 
                             # Emit text closing events: output_text.done, content_part.done, output_item.done
                             if final_text:
                                 # output_text.done
-                                yield f"data: {json.dumps({'type': 'response.output_text.done', 'item_id': message_id, 'output_index': 0, 'content_index': 0, 'text': final_text})}\n\n"
+                                yield f"data: {json.dumps({'type': 'response.output_text.done', 'item_id': message_id, 'output_index': message_index, 'content_index': 0, 'text': final_text})}\n\n"
                                 # content_part.done
-                                yield f"data: {json.dumps({'type': 'response.content_part.done', 'item_id': message_id, 'output_index': 0, 'content_index': 0, 'part': {'type': 'output_text', 'text': final_text, 'annotations': []}})}\n\n"
-
-                            # Build the final message item
-                            final_msg_item = {
-                                "id": message_id,
-                                "type": "message",
-                                "role": "assistant",
-                                "status": "completed",
-                                "content": [{"type": "output_text", "text": final_text, "annotations": []}]
-                            }
+                                yield f"data: {json.dumps({'type': 'response.content_part.done', 'item_id': message_id, 'output_index': message_index, 'content_index': 0, 'part': {'type': 'output_text', 'text': final_text, 'annotations': []}})}\n\n"
 
                             # output_item.done
-                            yield f"data: {json.dumps({'type': 'response.output_item.done', 'output_index': 0, 'item': final_msg_item})}\n\n"
+                            yield f"data: {json.dumps({'type': 'response.output_item.done', 'output_index': message_index, 'item': final_msg_item})}\n\n"
 
                             logger.info(f"Response completed with text: {final_text[:100]}...")
 
                             response_obj.status = "completed"
-                            response_obj.output = [final_msg_item]
                             completed_event = ResponseCompleted(
                                 type="response.completed",
                                 response=response_obj

@@ -640,6 +640,28 @@ class TestProcessChatCompletionsStream:
         completed = [e for e in events if e["type"] == "response.completed"]
         assert len(completed) == 1
 
+    async def test_done_without_output_emits_empty_message_lifecycle(self, mock_stream_response):
+        """[DONE] without prior output still emits a completed empty message item."""
+        lines = [
+            'data: [DONE]',
+        ]
+        mock_resp = mock_stream_response(lines)
+
+        events = [parse_sse(e) async for e in process_chat_completions_stream(mock_resp)]
+        event_types = [e["type"] for e in events]
+
+        assert "response.output_item.added" in event_types
+        assert "response.content_part.added" in event_types
+        assert "response.output_item.done" in event_types
+        assert event_types.index("response.output_item.added") < event_types.index("response.output_item.done")
+
+        completed = [e for e in events if e["type"] == "response.completed"]
+        assert len(completed) == 1
+        output = completed[0]["response"]["output"]
+        assert len(output) == 1
+        assert output[0]["type"] == "message"
+        assert output[0]["content"][0]["text"] == ""
+
     async def test_empty_chunks_skipped(self, mock_stream_response):
         """Empty chunks are silently skipped."""
         lines = [
@@ -1001,6 +1023,34 @@ class TestProcessChatCompletionsStream:
         assert added_by_call["call_a"] != added_by_call["call_b"]
         assert done_by_call["call_a"] == added_by_call["call_a"]
         assert done_by_call["call_b"] == added_by_call["call_b"]
+
+    async def test_text_and_tool_items_use_distinct_output_indexes(
+        self, mock_stream_response, mock_mcp_manager_fixture
+    ):
+        """Message and function_call output items should not reuse output_index values."""
+        mock_mcp = mock_mcp_manager_fixture
+        mock_mcp.is_mcp_tool.return_value = False
+
+        lines = [
+            'data: {"choices":[{"delta":{"content":"partial text"},"index":0}],"model":"m"}',
+            'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_mixed","type":"function","function":{"name":"mixed_tool","arguments":"{}"}}]},"index":0}]}',
+            'data: {"choices":[{"delta":{},"finish_reason":"tool_calls","index":0}]}',
+            'data: [DONE]',
+        ]
+        mock_resp = mock_stream_response(lines)
+        chat_req = {"messages": [{"role": "user", "content": "hi"}]}
+
+        events = [parse_sse(e) async for e in process_chat_completions_stream(mock_resp, chat_req)]
+
+        item_added = [e for e in events if e["type"] == "response.output_item.added"]
+        message_added = [e for e in item_added if e["item"]["type"] == "message"]
+        tool_added = [e for e in item_added if e["item"]["type"] == "function_call"]
+
+        assert len(message_added) == 1
+        assert len(tool_added) == 1
+        assert message_added[0]["output_index"] != tool_added[0]["output_index"]
+        assert message_added[0]["output_index"] == 0
+        assert tool_added[0]["output_index"] == 1
 
     async def test_function_call_legacy_created_event(
         self, mock_stream_response, mock_mcp_manager_fixture

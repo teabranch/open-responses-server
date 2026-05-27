@@ -77,7 +77,7 @@ class ToolCallArgumentsDelta(BaseModel):
 
 class ToolCallArgumentsDone(BaseModel):
     type: str = "response.function_call_arguments.done"
-    id: str
+    item_id: str
     output_index: int
     arguments: str
 
@@ -102,6 +102,23 @@ class ResponseInProgress(BaseModel):
     type: str = "response.in_progress"
     response: ResponseModel
 
+class OutputItemAdded(BaseModel):
+    type: str = "response.output_item.added"
+    output_index: int
+    item: Dict
+
+class OutputItemDone(BaseModel):
+    type: str = "response.output_item.done"
+    output_index: int
+    item: Dict
+
+class OutputTextDone(BaseModel):
+    type: str = "response.output_text.done"
+    item_id: str
+    output_index: int
+    content_index: int
+    text: str
+
 class ResponseCompleted(BaseModel):
     type: str = "response.completed"
-    response: ResponseModel 
+    response: ResponseModel

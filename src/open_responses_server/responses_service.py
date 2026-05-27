@@ -1,20 +1,101 @@
 import json
 import uuid
 import time
+from collections import OrderedDict
 from typing import Dict, List, Any
 
 from open_responses_server.common.config import logger, MAX_CONVERSATION_HISTORY
 from open_responses_server.common.mcp_manager import mcp_manager, serialize_tool_result
 from open_responses_server.models.responses_models import (
     ResponseModel, ResponseCreated, ResponseInProgress, ResponseCompleted,
-    ToolCallsCreated, ToolCallArgumentsDelta, ToolCallArgumentsDone, OutputTextDelta
+    ToolCallsCreated, ToolCallArgumentsDelta, ToolCallArgumentsDone, OutputTextDelta,
+    OutputItemAdded, OutputItemDone, OutputTextDone
 )
 
 # Global dictionary to store conversation history by response ID
 conversation_history: Dict[str, List[Dict[str, Any]]] = {}
 
+# Cache reasoning_content (CoT) keyed by scoped tool call identity for passback.
+# Keep a bounded insertion-ordered cache so recent tool-call chains can feed
+# reasoning back into the next request without unbounded growth.
+ReasoningCacheKey = tuple[str, str]
+reasoning_content_cache: OrderedDict[ReasoningCacheKey, str] = OrderedDict()
+
 def current_timestamp() -> int:
     return int(time.time())
+
+
+def _stringify_tool_output(output: Any) -> str:
+    """Normalize tool output into the string payload chat.completions expects."""
+    if output is None:
+        return ""
+    if isinstance(output, str):
+        return output
+    try:
+        return serialize_tool_result(output)
+    except TypeError:
+        return str(output)
+
+
+def _reasoning_cache_key(
+    call_id: str,
+    *,
+    scope: str | None = None,
+    tool_name: str = "",
+    arguments: str = "",
+) -> ReasoningCacheKey:
+    namespace = scope or json.dumps(
+        {"name": tool_name or "", "arguments": arguments or ""},
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return namespace, call_id
+
+
+def _cache_reasoning_content(
+    call_id: str,
+    reasoning_content: str,
+    *,
+    scope: str | None = None,
+    tool_name: str = "",
+    arguments: str = "",
+    max_entries: int = 200,
+) -> None:
+    """Store reasoning content by scoped call identity and evict oldest entries."""
+    if not call_id or not reasoning_content:
+        return
+
+    cache_key = _reasoning_cache_key(
+        call_id,
+        scope=scope,
+        tool_name=tool_name,
+        arguments=arguments,
+    )
+    reasoning_content_cache[cache_key] = reasoning_content
+    reasoning_content_cache.move_to_end(cache_key)
+
+    while len(reasoning_content_cache) > max_entries:
+        reasoning_content_cache.popitem(last=False)
+
+
+def _get_cached_reasoning_content(
+    call_id: str,
+    *,
+    scope: str | None = None,
+    tool_name: str = "",
+    arguments: str = "",
+) -> str:
+    """Read cached reasoning without falling back across unrelated namespaces."""
+    cache_key = _reasoning_cache_key(
+        call_id,
+        scope=scope,
+        tool_name=tool_name,
+        arguments=arguments,
+    )
+    cached_reasoning = reasoning_content_cache.get(cache_key, "")
+    if cached_reasoning:
+        reasoning_content_cache.move_to_end(cache_key)
+    return cached_reasoning
 
 def validate_message_sequence(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
@@ -94,6 +175,7 @@ def convert_responses_to_chat_completions(request_data: dict) -> dict:
     
     # Check for previous_response_id and load conversation history if available
     previous_response_id = request_data.get("previous_response_id")
+    reasoning_scope = f"response:{previous_response_id}" if previous_response_id else None
     if previous_response_id and previous_response_id in conversation_history:
         logger.info(f"Loading conversation history from previous_response_id: {previous_response_id}")
         messages = conversation_history[previous_response_id].copy()
@@ -116,105 +198,148 @@ def convert_responses_to_chat_completions(request_data: dict) -> dict:
     
     # Check for previous tool responses in the input
     if "input" in request_data and request_data["input"]:
-        user_message = {"role": "user", "content": ""}
-        logger.info(f"Processing input messages {request_data['input']}")
+        logger.info(f"Processing {len(request_data['input'])} input items")
         for i, item in enumerate(request_data["input"]):
             if isinstance(item, dict):
-                if item.get("type") == "message" and item.get("role") == "user":
-                    # Add user message
-                    content = ""
-                    if "content" in item:
-                        for j, content_item in enumerate(item["content"]):
-                            if isinstance(content_item, dict) and content_item.get("type") == "input_text":
-                                content += content_item.get("text", "")
-                            elif isinstance(content_item, dict) and content_item.get("type") == "text":
-                                content += content_item.get("text", "")
-                            elif isinstance(content_item, str):
-                                content += content_item
-                    user_message = {"role": "user", "content": content}
-                    messages.append(user_message)
-                    # Log user message content for context
-                    logger.info(f"User message: {content[:100]}...")
-                    
-                elif item.get("type") == "function_call_output":
-                    # Add tool output - log tool usage
-                    logger.info(f"[TOOL-OUTPUT-PROCESSING] Processing function_call_output: call_id={item.get('call_id')}, output={item.get('output', '')[:50]}...")
-                    logger.info(f"[TOOL-OUTPUT-PROCESSING] Full item: {json.dumps(item, indent=2)}")
-                    
-                    # Check if we have a corresponding assistant message with a tool call first
-                    call_id = item.get("call_id")
+                item_type = item.get("type")
+                item_role = item.get("role")
+
+                # Handle message items
+                if item_type == "message":
+                    if item_role == "user":
+                        content = ""
+                        if "content" in item:
+                            for content_item in item["content"]:
+                                if isinstance(content_item, dict) and content_item.get("type") in ("input_text", "text"):
+                                    content += content_item.get("text", "")
+                                elif isinstance(content_item, str):
+                                    content += content_item
+                        messages.append({"role": "user", "content": content})
+                        logger.info(f"User message: {content[:100]}...")
+
+                    elif item_role == "developer":
+                        # Developer messages → system role in chat completions
+                        content = ""
+                        if "content" in item:
+                            for content_item in item["content"]:
+                                if isinstance(content_item, dict) and content_item.get("type") in ("input_text", "text"):
+                                    content += content_item.get("text", "")
+                                elif isinstance(content_item, str):
+                                    content += content_item
+                        if content:
+                            # Check if system message already exists
+                            has_system = any(msg.get("role") == "system" for msg in messages)
+                            if has_system:
+                                # Append to existing system message
+                                for msg in messages:
+                                    if msg.get("role") == "system":
+                                        msg["content"] += "\n" + content
+                                        break
+                            else:
+                                messages.append({"role": "system", "content": content})
+                            logger.info(f"Developer message (as system): {content[:100]}...")
+
+                    elif item_role == "assistant":
+                        content = ""
+                        if "content" in item and isinstance(item["content"], list):
+                            for content_item in item["content"]:
+                                if isinstance(content_item, dict) and content_item.get("type") == "output_text":
+                                    content += content_item.get("text", "")
+                        if content:
+                            messages.append({"role": "assistant", "content": content})
+                            logger.info(f"Assistant message: {content[:100]}...")
+
+                # Handle function_call items (assistant's tool calls sent back by client)
+                elif item_type == "function_call":
+                    call_id = item.get("call_id") or item.get("id") or f"call_{uuid.uuid4().hex}"
+                    tool_name = item.get("name", "")
+                    arguments = item.get("arguments", "{}")
+
+                    # Look up cached reasoning_content for CoT passback
+                    cached_reasoning = _get_cached_reasoning_content(
+                        call_id,
+                        scope=reasoning_scope,
+                        tool_name=tool_name,
+                        arguments=arguments,
+                    )
+                    if cached_reasoning:
+                        logger.info(f"[INPUT] function_call: name={tool_name} call_id={call_id} +reasoning={len(cached_reasoning)} chars")
+                    else:
+                        logger.info(f"[INPUT] function_call: name={tool_name} call_id={call_id}")
+
+                    # Group consecutive function_calls into one assistant message
+                    # Check if the last message is an assistant with tool_calls
+                    if messages and messages[-1].get("role") == "assistant" and "tool_calls" in messages[-1]:
+                        messages[-1]["tool_calls"].append({
+                            "id": call_id,
+                            "type": "function",
+                            "function": {"name": tool_name, "arguments": arguments}
+                        })
+                        # Merge reasoning: use longest (first call's reasoning covers all)
+                        if cached_reasoning and not messages[-1].get("reasoning_content"):
+                            messages[-1]["reasoning_content"] = cached_reasoning
+                    else:
+                        assistant_msg = {
+                            "role": "assistant",
+                            "content": None,
+                            "tool_calls": [{
+                                "id": call_id,
+                                "type": "function",
+                                "function": {"name": tool_name, "arguments": arguments}
+                            }]
+                        }
+                        if cached_reasoning:
+                            assistant_msg["reasoning_content"] = cached_reasoning
+                        messages.append(assistant_msg)
+
+                # Handle function_call_output items (tool results)
+                elif item_type == "function_call_output":
+                    call_id = item.get("call_id") or item.get("id") or f"call_{uuid.uuid4().hex}"
+                    output = _stringify_tool_output(item.get("output", ""))
+                    logger.info(f"[INPUT] function_call_output: call_id={call_id} output_len={len(str(output))}")
+
+                    # Check if we have a corresponding assistant message with a matching tool call
                     has_matching_tool_call = False
-                    
-                    # Look for a matching tool call in the existing messages
                     for msg in messages:
                         if msg.get("role") == "assistant" and "tool_calls" in msg:
                             for tool_call in msg["tool_calls"]:
                                 if tool_call.get("id") == call_id:
                                     has_matching_tool_call = True
                                     break
-                    
-                    # Debug: Log messages structure for debugging
-                    logger.info(f"[TOOL-OUTPUT-PROCESSING] Messages so far: {len(messages)} messages")
-                    for i, msg in enumerate(messages):
-                        logger.info(f"[TOOL-OUTPUT-PROCESSING] Message {i}: role={msg.get('role')}, has_tool_calls={'tool_calls' in msg}")
-                        if msg.get("role") == "tool":
-                            logger.info(f"[TOOL-OUTPUT-PROCESSING] Tool message {i}: call_id={msg.get('tool_call_id')}")
-                    
+
                     if has_matching_tool_call:
-                        # Only add the tool response if we found a matching tool call
-                        tool_message = {
+                        messages.append({
                             "role": "tool",
                             "tool_call_id": call_id,
-                            "content": item.get("output", "")
-                        }
-                        messages.append(tool_message)
-                        logger.info(f"[TOOL-OUTPUT-PROCESSING] Added tool response for existing tool call {call_id}")
+                            "content": output
+                        })
+                        logger.info(f"[INPUT] Added tool response for call_id={call_id}")
                     else:
-                        # If no matching tool call, we need to add an assistant message with the tool call first
-                        # as this could be from a previous conversation
+                        # Fallback: create synthetic assistant + tool message
                         tool_name = item.get("name", "unknown_tool")
-                        
-                        # Validate we have required fields
-                        if not tool_name or tool_name == "unknown_tool":
-                            logger.error(f"[TOOL-OUTPUT-PROCESSING] Cannot create tool call without tool name. Item: {item}")
-                            continue
-                        
-                        # Create an assistant message with a tool call
-                        assistant_message = {
-                            "role": "assistant",
-                            "content": None,
-                            "tool_calls": [{
-                                "id": call_id,
-                                "type": "function",
-                                "function": {
-                                    "name": tool_name,
-                                    "arguments": item.get("arguments", "{}")
-                                }
-                            }]
-                        }
-                        messages.append(assistant_message)
-                        
-                        # Then add the tool response
-                        tool_message = {
-                            "role": "tool",
-                            "tool_call_id": call_id,
-                            "content": item.get("output", "")
-                        }
-                        messages.append(tool_message)
-                        logger.info(f"[TOOL-OUTPUT-PROCESSING] Added assistant message with tool call and corresponding tool response for {tool_name}")
-                elif item.get("type") == "message" and item.get("role") == "assistant":
-                    # Handle assistant messages from previous conversations
-                    content = ""
-                    if "content" in item and isinstance(item["content"], list):
-                        for content_item in item["content"]:
-                            if isinstance(content_item, dict) and content_item.get("type") == "output_text":
-                                content += content_item.get("text", "")
-                    
-                    if content:
-                        messages.append({"role": "assistant", "content": content})
-                        logger.info(f"Added assistant message: {content[:100]}...")
+                        if tool_name and tool_name != "unknown_tool":
+                            messages.append({
+                                "role": "assistant",
+                                "content": None,
+                                "tool_calls": [{
+                                    "id": call_id,
+                                    "type": "function",
+                                    "function": {
+                                        "name": tool_name,
+                                        "arguments": item.get("arguments", "{}")
+                                    }
+                                }]
+                            })
+                            messages.append({
+                                "role": "tool",
+                                "tool_call_id": call_id,
+                                "content": output
+                            })
+                            logger.info(f"[INPUT] Created synthetic assistant+tool for {tool_name} call_id={call_id}")
+                        else:
+                            logger.warning(f"[INPUT] Skipping orphaned function_call_output: call_id={call_id}, no tool name")
+
             elif isinstance(item, str):
-                # Simple string input
                 messages.append({"role": "user", "content": item})
                 logger.info(f"User message (string): {item[:100]}...")
     
@@ -321,9 +446,11 @@ async def process_chat_completions_stream(response, chat_request=None):
     """
     tool_calls = {}  # Store tool calls being built
     response_id = f"resp_{uuid.uuid4().hex}"
-    tool_call_counter = 0
+    next_output_index = 0
+    message_output_index: int | None = None
     message_id = f"msg_{uuid.uuid4().hex}"
     output_text_content = ""  # Track the full text content for logging
+    reasoning_content = ""  # Accumulate reasoning/CoT from model for passback
     request_start_time = time.time()
     last_chunk_time = request_start_time
     logger.info(f"[STREAM-START] response_id={response_id} message_id={message_id}")
@@ -353,6 +480,83 @@ async def process_chat_completions_stream(response, chat_request=None):
     yield f"data: {json.dumps(in_progress_event.dict())}\n\n"
     
     chunk_counter = 0
+
+    def allocate_output_index() -> int:
+        """Reserve the next Responses output index for a newly added item."""
+        nonlocal next_output_index
+        output_index = next_output_index
+        next_output_index += 1
+        return output_index
+
+    def build_message_item(status: str, text: str | None = None) -> Dict[str, Any]:
+        content = []
+        if text is not None:
+            content = [{"type": "output_text", "text": text, "annotations": []}]
+        return {
+            "id": message_id,
+            "type": "message",
+            "role": "assistant",
+            "status": status,
+            "content": content,
+        }
+
+    def ensure_message_output_added() -> list[str]:
+        """Emit message item lifecycle start once and reserve its output index."""
+        nonlocal message_output_index
+        if message_output_index is not None:
+            return []
+
+        message_output_index = allocate_output_index()
+        msg_item = build_message_item("in_progress")
+        response_obj.output.append(msg_item)
+        return [
+            f"data: {json.dumps({'type': 'response.output_item.added', 'output_index': message_output_index, 'item': msg_item})}\n\n",
+            f"data: {json.dumps({'type': 'response.content_part.added', 'item_id': message_id, 'output_index': message_output_index, 'content_index': 0, 'part': {'type': 'output_text', 'text': '', 'annotations': []}})}\n\n",
+        ]
+
+    def finalize_message_output(final_text: str) -> tuple[int, Dict[str, Any]]:
+        """Update the message output item to its completed representation."""
+        nonlocal message_output_index
+        if message_output_index is None:
+            message_output_index = allocate_output_index()
+
+        final_msg_item = build_message_item("completed", final_text)
+        for idx, output_item in enumerate(response_obj.output):
+            if output_item.get("id") == message_id and output_item.get("type") == "message":
+                response_obj.output[idx] = final_msg_item
+                break
+        else:
+            response_obj.output.append(final_msg_item)
+        return message_output_index, final_msg_item
+
+    def ensure_tool_call_added(tool_call: Dict[str, Any]) -> str | None:
+        """Emit output_item.added once per tool call after its name becomes available."""
+        tool_name = tool_call["function"]["name"]
+        if tool_call.get("added_emitted") or not tool_name:
+            return None
+
+        logger.info(f"Tool call created: {tool_name}")
+        is_mcp = mcp_manager.is_mcp_tool(tool_name)
+        logger.info(f"[TOOL-CALL-CREATED] Tool '{tool_name}': is_mcp={is_mcp}, status=in_progress")
+
+        fc_item = {
+            "arguments": "",
+            "call_id": tool_call["id"],
+            "name": tool_name,
+            "type": "function_call",
+            "id": tool_call["id"],
+            "status": "in_progress"
+        }
+        response_obj.output.append(fc_item)
+        tool_call["added_emitted"] = True
+
+        item_added_event = OutputItemAdded(
+            output_index=tool_call["output_index"],
+            item=fc_item
+        )
+        logger.info(f"Emitting output_item.added for '{tool_name}'")
+        return f"data: {json.dumps(item_added_event.dict())}\n\n"
+
     try:
         async for chunk in response.aiter_lines():
             chunk_counter += 1
@@ -378,15 +582,18 @@ async def process_chat_completions_stream(response, chat_request=None):
                 
                 # If we haven't already completed the response, do it now
                 if response_obj.status != "completed":
-                    # If no output, add empty message
-                    if not response_obj.output:
-                        response_obj.output.append({
-                            "id": message_id,
-                            "type": "message",
-                            "role": "assistant",
-                            "content": [{"type": "output_text", "text": f"{output_text_content}\n\n" or "Done"}]
-                        })
-                    
+                    final_text = output_text_content or ""
+                    for payload in ensure_message_output_added():
+                        yield payload
+                    message_index, final_msg_item = finalize_message_output(final_text)
+
+                    # Emit text closing events if we had text content
+                    if final_text:
+                        yield f"data: {json.dumps({'type': 'response.output_text.done', 'item_id': message_id, 'output_index': message_index, 'content_index': 0, 'text': final_text})}\n\n"
+                        yield f"data: {json.dumps({'type': 'response.content_part.done', 'item_id': message_id, 'output_index': message_index, 'content_index': 0, 'part': {'type': 'output_text', 'text': final_text, 'annotations': []}})}\n\n"
+
+                    yield f"data: {json.dumps({'type': 'response.output_item.done', 'output_index': message_index, 'item': final_msg_item})}\n\n"
+
                     response_obj.status = "completed"
                     completed_event = ResponseCompleted(
                         type="response.completed",
@@ -394,14 +601,14 @@ async def process_chat_completions_stream(response, chat_request=None):
                     )
                     
                     # Save conversation history for DONE events if we have chat_request
-                    if chat_request and output_text_content:
+                    if chat_request:
                         # Get the existing messages from the request
                         messages = chat_request.get("messages", [])
                         
                         # Add the assistant response to the conversation history
                         messages.append({
                             "role": "assistant",
-                            "content": output_text_content
+                            "content": final_text
                         })
                         
                         # Store in conversation history
@@ -446,16 +653,17 @@ async def process_chat_completions_stream(response, chat_request=None):
                             index = 0
                             # Initialize tool call entry if first fragment
                             if index not in tool_calls:
+                                output_index = allocate_output_index()
                                 tool_calls[index] = {
                                     "id": f"call_{uuid.uuid4().hex}",
                                     "function": {"name": func.get("name", ""), "arguments": ""},
-                                    "output_index": 0
+                                    "output_index": output_index
                                 }
                                 # Emit created event for function call
                                 created_evt = ToolCallsCreated(
                                     type="response.tool_calls.created",
                                     item_id=tool_calls[index]["id"],
-                                    output_index=0,
+                                    output_index=output_index,
                                     tool_call={"id": tool_calls[index]["id"], "name": tool_calls[index]["function"]["name"], "arguments": ""}
                                 )
                                 yield f"data: {json.dumps(created_evt.dict())}\n\n"
@@ -467,7 +675,7 @@ async def process_chat_completions_stream(response, chat_request=None):
                                 delta_evt = ToolCallArgumentsDelta(
                                     type="response.function_call_arguments.delta",
                                     item_id=tool_calls[index]["id"],
-                                    output_index=0,
+                                    output_index=tool_calls[index]["output_index"],
                                     delta=fragment
                                 )
                                 yield f"data: {json.dumps(delta_evt.dict())}\n\n"
@@ -480,91 +688,64 @@ async def process_chat_completions_stream(response, chat_request=None):
                                 
                                 # Initialize tool call if not exists
                                 if index not in tool_calls:
+                                    tool_call_id = tool_delta.get("id", f"call_{uuid.uuid4().hex}")
                                     tool_calls[index] = {
-                                        "id": tool_delta.get("id", f"call_{uuid.uuid4().hex}"),
+                                        "id": tool_call_id,
                                         "type": tool_delta.get("type", "function"),
                                         "function": {
                                             "name": tool_delta.get("function", {}).get("name", ""),
-                                            "arguments": tool_delta.get("function", {}).get("arguments", ""),
+                                            "arguments": "",
                                         },
-                                        "item_id": f"tool_call_{uuid.uuid4().hex}",
-                                        "output_index": tool_call_counter
+                                        "output_index": allocate_output_index(),
+                                        "added_emitted": False,
                                     }
-                                    
-                                    # If we got a tool name, emit the created event
-                                    if "function" in tool_delta and "name" in tool_delta["function"]:
-                                        tool_call = tool_calls[index]
-                                        tool_call["function"]["name"] = tool_delta["function"]["name"]
-                                        # Log tool call creation
-                                        logger.info(f"Tool call created: {tool_call['function']['name']}")
-                                        
-                                        # Check if this is an MCP tool or a user-defined tool
-                                        is_mcp = mcp_manager.is_mcp_tool(tool_call["function"]["name"])
-                                        tool_status = "in_progress" if is_mcp else "ready"
-                                        
-                                        logger.info(f"[TOOL-CALL-CREATED] Tool '{tool_call['function']['name']}': is_mcp={is_mcp}, status={tool_status}")
-                                        
-                                        # Add the tool call to the response output in Responses API format
-                                        response_obj.output.append({
-                                            "arguments": tool_call["function"]["arguments"],
-                                            "call_id": tool_call["id"],
-                                            "name": tool_call["function"]["name"],
-                                            "type": "function_call",
-                                            "id": tool_call["id"],
-                                            "status": tool_status
-                                        })
-                                        
-                                        # Emit the in_progress event
-                                        in_progress_event = ResponseInProgress(
-                                            type="response.in_progress",
-                                            response=response_obj
-                                        )
-                                        
-                                        logger.info(f"Emitting {in_progress_event}")
-                                        yield f"data: {json.dumps(in_progress_event.dict())}\n\n"
 
-                                        tool_call_counter += 1
+                                tool_call = tool_calls[index]
+
+                                if "function" in tool_delta and "name" in tool_delta["function"]:
+                                    tool_call["function"]["name"] = tool_delta["function"]["name"]
+                                    item_added_payload = ensure_tool_call_added(tool_call)
+                                    if item_added_payload:
+                                        yield item_added_payload
                                 
                                 # Process function arguments if present
                                 if "function" in tool_delta and "arguments" in tool_delta["function"]:
                                     arg_fragment = tool_delta["function"]["arguments"]
                                     tool_calls[index]["function"]["arguments"] += arg_fragment
-                                    
+
                                     # Emit delta event
                                     args_event = ToolCallArgumentsDelta(
                                         type="response.function_call_arguments.delta",
-                                        item_id=tool_calls[index]["item_id"],
+                                        item_id=tool_calls[index]["id"],
                                         output_index=tool_calls[index]["output_index"],
                                         delta=arg_fragment
                                     )
-                                    
+
                                     yield f"data: {json.dumps(args_event.dict())}\n\n"
                         
                         # Handle content (text)
                         elif "content" in delta and delta["content"] is not None:
                             content_delta = delta["content"]
                             output_text_content += content_delta
-                            
-                            # Create a new message if it doesn't exist
-                            if not response_obj.output:
-                                response_obj.output.append({
-                                    "id": message_id,
-                                    "type": "message",
-                                    "role": "assistant",
-                                    "content": [{"type": "output_text", "text": output_text_content or "(No update)"}]
-                                })
-                            
+
+                            # On first text chunk, emit output_item.added + content_part.added
+                            for payload in ensure_message_output_added():
+                                yield payload
+
                             # Emit text delta event
                             text_event = OutputTextDelta(
                                 type="response.output_text.delta",
                                 item_id=message_id,
-                                output_index=0,
+                                output_index=message_output_index,
                                 content_index=0,
                                 delta=content_delta
                             )
-                            
                             yield f"data: {json.dumps(text_event.dict())}\n\n"
-                    
+
+                        # Accumulate reasoning_content (CoT) from model for passback
+                        if "reasoning_content" in delta and delta["reasoning_content"] is not None:
+                            reasoning_content += delta["reasoning_content"]
+
                     if "finish_reason" in choice and choice["finish_reason"] is not None:
                         logger.info(f"Received finish_reason: {choice['finish_reason']}")
                         
@@ -610,7 +791,7 @@ async def process_chat_completions_stream(response, chat_request=None):
                                     text_event = OutputTextDelta(
                                         type="response.output_text.delta",
                                         item_id=tool_call["id"],
-                                        output_index=0,
+                                        output_index=tool_call["output_index"],
                                         content_index=0,
                                         delta=text
                                     )
@@ -618,7 +799,7 @@ async def process_chat_completions_stream(response, chat_request=None):
                                 else:
                                     # For non-MCP tools, send the function call back to the client in Responses API format
                                     logger.info(f"[TOOL-EXECUTE] Forwarding non-MCP tool call to client: {tool_name}")
-                                    
+
                                     # Include the function call in the response
                                     response_obj.output.append({
                                         "id": tool_call["id"],
@@ -626,16 +807,33 @@ async def process_chat_completions_stream(response, chat_request=None):
                                         "name": tool_name,
                                         "arguments": tool_call["function"]["arguments"],
                                         "call_id": tool_call["id"],
-                                        "status": "ready"
+                                        "status": "completed"
                                     })
-                                    
+                                
+                                # Cache reasoning for CoT passback
+                                if reasoning_content:
+                                    _cache_reasoning_content(
+                                        tool_call["id"],
+                                        reasoning_content,
+                                        scope=f"response:{response_id}",
+                                        tool_name=tool_call["function"]["name"],
+                                        arguments=tool_call["function"]["arguments"],
+                                    )
+                                    _cache_reasoning_content(
+                                        tool_call["id"],
+                                        reasoning_content,
+                                        tool_name=tool_call["function"]["name"],
+                                        arguments=tool_call["function"]["arguments"],
+                                    )
+                                    logger.info(f"[COT-PASSBACK] Cached reasoning ({len(reasoning_content)} chars) for call_id={tool_call['id']}")
+
                                 # After tool handling, complete the response
                                 response_obj.status = "completed"
                                 completed_event = ResponseCompleted(
                                     type="response.completed",
                                     response=response_obj
                                 )
-                                
+
                                 # Save conversation history if we have chat_request available
                                 if chat_request:
                                     # Get the existing messages from the request
@@ -654,8 +852,12 @@ async def process_chat_completions_stream(response, chat_request=None):
                                             }
                                         }]
                                     }
+                                    # Preserve reasoning_content for CoT passback on tool call turns
+                                    if reasoning_content:
+                                        assistant_message["reasoning_content"] = reasoning_content
+                                        logger.info(f"[COT-PASSBACK] Stored {len(reasoning_content)} chars of reasoning_content in history")
                                     messages.append(assistant_message)
-                                    
+
                                     # Add the tool response for immediate tools
                                     if mcp_manager.is_mcp_tool(tool_name):
                                         # For MCP tools, also add the tool response
@@ -694,96 +896,98 @@ async def process_chat_completions_stream(response, chat_request=None):
                                 
                                 logger.info(f"[TOOL-CALLS-FINISH] Tool '{tool_call['function']['name']}': is_mcp={is_mcp}")
                                 
+                                # Emit the arguments.done event (same for MCP and non-MCP)
+                                done_event = ToolCallArgumentsDone(
+                                    type="response.function_call_arguments.done",
+                                    item_id=tool_call["id"],
+                                    output_index=tool_call["output_index"],
+                                    arguments=tool_call["function"]["arguments"]
+                                )
+                                logger.info(f"Emitting arguments.done for '{tool_call['function']['name']}'")
+                                yield f"data: {json.dumps(done_event.dict())}\n\n"
+
+                                # Update the function_call item in output: set final arguments and status
+                                for output_item in response_obj.output:
+                                    if output_item.get("id") == tool_call["id"] and output_item.get("type") == "function_call":
+                                        output_item["arguments"] = tool_call["function"]["arguments"]
+                                        output_item["status"] = "completed"
+                                        break
+
+                                # Emit response.output_item.done with completed status
+                                done_fc_item = {
+                                    "arguments": tool_call["function"]["arguments"],
+                                    "call_id": tool_call["id"],
+                                    "name": tool_call["function"]["name"],
+                                    "type": "function_call",
+                                    "id": tool_call["id"],
+                                    "status": "completed"
+                                }
+                                item_done_event = OutputItemDone(
+                                    output_index=tool_call["output_index"],
+                                    item=done_fc_item
+                                )
+                                logger.info(f"Emitting output_item.done for '{tool_call['function']['name']}'")
+                                yield f"data: {json.dumps(item_done_event.dict())}\n\n"
+
                                 # For MCP tools, execute them immediately
                                 if is_mcp:
                                     logger.info(f"[TOOL-CALLS-FINISH] Executing MCP tool '{tool_call['function']['name']}'")
-                                    
-                                    # Parse the arguments JSON
+
                                     try:
                                         args = json.loads(tool_call["function"]["arguments"])
                                     except Exception:
                                         args = {}
-                                        
-                                    # Execute MCP tool
+
                                     try:
                                         result = await mcp_manager.execute_mcp_tool(tool_call["function"]["name"], args)
-                                        logger.info(f"[TOOL-CALLS-FINISH] ✓ MCP tool '{tool_call['function']['name']}' executed successfully")
-                                        logger.debug(f"[TOOL-CALLS-FINISH] MCP tool result: {result}")
+                                        logger.info(f"[TOOL-CALLS-FINISH] MCP tool '{tool_call['function']['name']}' executed successfully")
                                     except Exception as e:
                                         result = {"error": str(e)}
-                                        logger.error(f"[TOOL-CALLS-FINISH] ✗ MCP tool '{tool_call['function']['name']}' failed: {e}")
-                                    
-                                    # Emit the arguments.done event
-                                    done_event = ToolCallArgumentsDone(
-                                        type="response.function_call_arguments.done",
-                                        id=tool_call["item_id"],
-                                        output_index=tool_call["output_index"],
-                                        arguments=tool_call["function"]["arguments"]
-                                    )
-                                    logger.info(f"Emitting {done_event}")
-                                    yield f"data: {json.dumps(done_event.dict())}\n\n"
-                                    
-                                    # Add the tool execution result to the response
+                                        logger.error(f"[TOOL-CALLS-FINISH] MCP tool '{tool_call['function']['name']}' failed: {e}")
+
                                     response_obj.output.append({
                                         "id": tool_call["id"],
                                         "type": "function_call_output",
                                         "call_id": tool_call["id"],
                                         "output": serialize_tool_result(result)
                                     })
-                                    
-                                    # Convert result to JSON for text delta
+
                                     try:
                                         text = serialize_tool_result(result)
                                     except TypeError:
                                         text = serialize_tool_result(str(result))
-                                        
-                                    # Emit text delta with the result
+
                                     text_event = OutputTextDelta(
                                         type="response.output_text.delta",
                                         item_id=tool_call["id"],
-                                        output_index=0,
+                                        output_index=tool_call["output_index"],
                                         content_index=0,
                                         delta=text
                                     )
                                     yield f"data: {json.dumps(text_event.dict())}\n\n"
-
                                     logger.info(f"[TOOL-CALLS-FINISH] Added function_call_output for MCP tool '{tool_call['function']['name']}'")
-                                    
                                 else:
-                                    # For non-MCP tools, emit arguments.done and leave them in ready state for client
-                                    logger.info(f"[TOOL-CALLS-FINISH] Keeping non-MCP tool '{tool_call['function']['name']}' in ready state for client")
-                                    
-                                    done_event = ToolCallArgumentsDone(
-                                        type="response.function_call_arguments.done",
-                                        id=tool_call["item_id"],
-                                        output_index=tool_call["output_index"],
-                                        arguments=tool_call["function"]["arguments"]
+                                    logger.info(f"[TOOL-CALLS-FINISH] Non-MCP tool '{tool_call['function']['name']}' completed, client will execute")
+
+                            # Cache reasoning_content keyed by call_ids for CoT passback
+                            # When Codex CLI sends these call_ids back, we inject the reasoning
+                            if reasoning_content:
+                                for tc in tool_calls.values():
+                                    _cache_reasoning_content(
+                                        tc["id"],
+                                        reasoning_content,
+                                        scope=f"response:{response_id}",
+                                        tool_name=tc["function"]["name"],
+                                        arguments=tc["function"]["arguments"],
                                     )
-                                    logger.info(f"Emitting {done_event}")
-                                    yield f"data: {json.dumps(done_event.dict())}\n\n"
-                                    
-                                    # Update response object for non-MCP tools
-                                    # Find any existing entry for this tool call and update args
-                                    found = False
-                                    for output_item in response_obj.output:
-                                        if output_item.get("id") == tool_call["id"] and output_item.get("type") == "function_call":
-                                            output_item["arguments"] = tool_call["function"]["arguments"]
-                                            found = True
-                                            logger.info(f"[TOOL-CALLS-FINISH] Updated existing function_call entry for '{tool_call['function']['name']}'")
-                                            break
-                                    
-                                    # If not found, add it
-                                    if not found:
-                                        response_obj.output.append({
-                                            "id": tool_call["id"],
-                                            "type": "function_call",
-                                            "name": tool_call["function"]["name"],
-                                            "arguments": tool_call["function"]["arguments"],
-                                            "call_id": tool_call["id"],
-                                            "status": "ready"
-                                        })
-                                        logger.info(f"[TOOL-CALLS-FINISH] Added new function_call entry for '{tool_call['function']['name']}'")
-                            
+                                    _cache_reasoning_content(
+                                        tc["id"],
+                                        reasoning_content,
+                                        tool_name=tc["function"]["name"],
+                                        arguments=tc["function"]["arguments"],
+                                    )
+                                logger.info(f"[COT-PASSBACK] Cached reasoning ({len(reasoning_content)} chars) for {len(tool_calls)} call_ids")
+
                             # After processing all tool calls, complete the response
                             response_obj.status = "completed"
                             completed_event = ResponseCompleted(
@@ -809,8 +1013,12 @@ async def process_chat_completions_stream(response, chat_request=None):
                                         }
                                     } for tool_call in tool_calls.values()]
                                 }
+                                # Preserve reasoning_content for CoT passback on tool call turns
+                                if reasoning_content:
+                                    assistant_message["reasoning_content"] = reasoning_content
+                                    logger.info(f"[COT-PASSBACK] Stored {len(reasoning_content)} chars of reasoning_content in history")
                                 messages.append(assistant_message)
-                                
+
                                 # Add tool responses for executed MCP tools
                                 for tool_call in tool_calls.values():
                                     if mcp_manager.is_mcp_tool(tool_call["function"]["name"]):
@@ -847,30 +1055,30 @@ async def process_chat_completions_stream(response, chat_request=None):
                         # If the finish reason is "stop", emit the completed event
                         if choice["finish_reason"] == "stop":
                             logger.info("Received stop finish reason")
-                            # If we have any text content, add it to the output
-                            if not response_obj.output:
-                                response_obj.output.append({
-                                    "id": message_id,
-                                    "type": "message",
-                                    "role": "assistant",
-                                    "content": [{"type": "output_text", "text": f"{output_text_content}\n\n" or "Done"}]
-                                })
-                            
-                            # Log complete output text
-                            logger.info(f"Response completed with text: {output_text_content[:100]}...\n\n")
-                                
+
+                            final_text = output_text_content or ""
+                            for payload in ensure_message_output_added():
+                                yield payload
+                            message_index, final_msg_item = finalize_message_output(final_text)
+
+                            # Emit text closing events: output_text.done, content_part.done, output_item.done
+                            if final_text:
+                                # output_text.done
+                                yield f"data: {json.dumps({'type': 'response.output_text.done', 'item_id': message_id, 'output_index': message_index, 'content_index': 0, 'text': final_text})}\n\n"
+                                # content_part.done
+                                yield f"data: {json.dumps({'type': 'response.content_part.done', 'item_id': message_id, 'output_index': message_index, 'content_index': 0, 'part': {'type': 'output_text', 'text': final_text, 'annotations': []}})}\n\n"
+
+                            # output_item.done
+                            yield f"data: {json.dumps({'type': 'response.output_item.done', 'output_index': message_index, 'item': final_msg_item})}\n\n"
+
+                            logger.info(f"Response completed with text: {final_text[:100]}...")
+
                             response_obj.status = "completed"
-                            response_obj.output= [{
-                                "id": message_id,
-                                "type": "message",
-                                "role": "assistant",
-                                "content": [{"type": "output_text", "text": output_text_content or "(No update)"}]
-                            }]
                             completed_event = ResponseCompleted(
                                 type="response.completed",
                                 response=response_obj
                             )
-                            
+
                             # Save conversation history if we have chat_request available
                             if chat_request:
                                 # Get the existing messages from the request
@@ -879,7 +1087,7 @@ async def process_chat_completions_stream(response, chat_request=None):
                                 # Add the assistant response to the conversation history
                                 messages.append({
                                     "role": "assistant",
-                                    "content": output_text_content or "(No update)"
+                                    "content": final_text
                                 })
                                 
                                 # Store in conversation history

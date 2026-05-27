@@ -25,6 +25,7 @@ MAX_TOOL_CALL_ITERATIONS = int(os.environ.get("MAX_TOOL_CALL_ITERATIONS", "25"))
 # Streaming Configuration
 STREAM_TIMEOUT = float(os.environ.get("STREAM_TIMEOUT", "120.0"))
 HEARTBEAT_INTERVAL = float(os.environ.get("HEARTBEAT_INTERVAL", "15.0"))
+BACKEND_CONNECT_TIMEOUT = float(os.environ.get("BACKEND_CONNECT_TIMEOUT", "30.0"))
 
 # Logging Configuration
 LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").upper()
@@ -70,5 +71,6 @@ logger.info(f"  MAX_CONVERSATION_HISTORY: {MAX_CONVERSATION_HISTORY}")
 logger.info(f"  MAX_TOOL_CALL_ITERATIONS: {MAX_TOOL_CALL_ITERATIONS}")
 logger.info(f"  STREAM_TIMEOUT: {STREAM_TIMEOUT}")
 logger.info(f"  HEARTBEAT_INTERVAL: {HEARTBEAT_INTERVAL}")
+logger.info(f"  BACKEND_CONNECT_TIMEOUT: {BACKEND_CONNECT_TIMEOUT}")
 logger.info(f"  LOG_LEVEL: {LOG_LEVEL}")
 logger.info(f"  LOG_FILE_PATH: {LOG_FILE_PATH}")

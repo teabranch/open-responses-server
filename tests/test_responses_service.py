@@ -18,6 +18,7 @@ from open_responses_server.responses_service import (
     conversation_history,
     reasoning_content_cache,
     _cache_reasoning_content,
+    _get_cached_reasoning_content,
 )
 
 
@@ -152,7 +153,7 @@ class TestReasoningContentCache:
         _cache_reasoning_content("call_2", "r2", max_entries=2)
         _cache_reasoning_content("call_3", "r3", max_entries=2)
 
-        assert list(reasoning_content_cache.keys()) == ["call_2", "call_3"]
+        assert [key[1] for key in reasoning_content_cache.keys()] == ["call_2", "call_3"]
 
     def test_cache_reasoning_content_refreshes_existing_key(self):
         """Reinserting an existing call_id should move it to the newest position."""
@@ -161,8 +162,23 @@ class TestReasoningContentCache:
         _cache_reasoning_content("call_1", "r1-new", max_entries=2)
         _cache_reasoning_content("call_3", "r3", max_entries=2)
 
-        assert list(reasoning_content_cache.keys()) == ["call_1", "call_3"]
-        assert reasoning_content_cache["call_1"] == "r1-new"
+        keys = list(reasoning_content_cache.keys())
+        assert [key[1] for key in keys] == ["call_1", "call_3"]
+        assert reasoning_content_cache[keys[0]] == "r1-new"
+
+    def test_cache_reasoning_content_is_scoped_by_response(self):
+        """Same call_id in a different response scope should not reuse reasoning."""
+        _cache_reasoning_content("call_1", "private", scope="response:resp_a")
+
+        assert _get_cached_reasoning_content("call_1", scope="response:resp_b") == ""
+        assert _get_cached_reasoning_content("call_1", scope="response:resp_a") == "private"
+
+    def test_cache_reasoning_content_fallback_uses_tool_signature(self):
+        """Full-history clients without previous_response_id use call signature scoping."""
+        _cache_reasoning_content("call_1", "private", tool_name="read_file", arguments='{"path":"a"}')
+
+        assert _get_cached_reasoning_content("call_1", tool_name="read_file", arguments='{"path":"b"}') == ""
+        assert _get_cached_reasoning_content("call_1", tool_name="read_file", arguments='{"path":"a"}') == "private"
 
 
 # ===================================================================
@@ -261,6 +277,60 @@ class TestConvertResponsesToChatCompletions:
         result = convert_responses_to_chat_completions(req)
         user_msgs = [m for m in result["messages"] if m["role"] == "user"]
         assert any("hello world" in m["content"] for m in user_msgs)
+
+    def test_function_call_reasoning_cache_uses_previous_response_scope(self):
+        """previous_response_id should scope reasoning passback for matching function calls."""
+        _cache_reasoning_content(
+            "call_scoped",
+            "scoped reasoning",
+            scope="response:prev_resp",
+            tool_name="scoped_tool",
+            arguments="{}",
+        )
+
+        req = {
+            "model": "m",
+            "previous_response_id": "prev_resp",
+            "input": [
+                {
+                    "type": "function_call",
+                    "call_id": "call_scoped",
+                    "name": "scoped_tool",
+                    "arguments": "{}",
+                }
+            ],
+        }
+        result = convert_responses_to_chat_completions(req)
+
+        assistant_msgs = [m for m in result["messages"] if m.get("role") == "assistant"]
+        assert assistant_msgs[0]["reasoning_content"] == "scoped reasoning"
+
+    def test_function_call_reasoning_cache_does_not_cross_response_scope(self):
+        """Same call_id under a different previous_response_id should not inject reasoning."""
+        _cache_reasoning_content(
+            "call_scoped",
+            "private reasoning",
+            scope="response:prev_resp",
+            tool_name="scoped_tool",
+            arguments="{}",
+        )
+
+        req = {
+            "model": "m",
+            "previous_response_id": "other_resp",
+            "input": [
+                {
+                    "type": "function_call",
+                    "call_id": "call_scoped",
+                    "name": "scoped_tool",
+                    "arguments": "{}",
+                }
+            ],
+        }
+        result = convert_responses_to_chat_completions(req)
+
+        assistant_msgs = [m for m in result["messages"] if m.get("role") == "assistant"]
+        assert "reasoning_content" not in assistant_msgs[0]
 
     def test_function_call_output_with_matching_tool_call(self):
         """function_call_output with an existing matching tool_call in messages."""

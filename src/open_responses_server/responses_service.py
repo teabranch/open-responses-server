@@ -15,10 +15,11 @@ from open_responses_server.models.responses_models import (
 # Global dictionary to store conversation history by response ID
 conversation_history: Dict[str, List[Dict[str, Any]]] = {}
 
-# Cache reasoning_content (CoT) keyed by tool call_id for passback.
+# Cache reasoning_content (CoT) keyed by scoped tool call identity for passback.
 # Keep a bounded insertion-ordered cache so recent tool-call chains can feed
 # reasoning back into the next request without unbounded growth.
-reasoning_content_cache: OrderedDict[str, str] = OrderedDict()
+ReasoningCacheKey = tuple[str, str]
+reasoning_content_cache: OrderedDict[ReasoningCacheKey, str] = OrderedDict()
 
 def current_timestamp() -> int:
     return int(time.time())
@@ -36,16 +37,65 @@ def _stringify_tool_output(output: Any) -> str:
         return str(output)
 
 
-def _cache_reasoning_content(call_id: str, reasoning_content: str, max_entries: int = 200) -> None:
-    """Store reasoning content by call_id and evict oldest entries when bounded."""
+def _reasoning_cache_key(
+    call_id: str,
+    *,
+    scope: str | None = None,
+    tool_name: str = "",
+    arguments: str = "",
+) -> ReasoningCacheKey:
+    namespace = scope or json.dumps(
+        {"name": tool_name or "", "arguments": arguments or ""},
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return namespace, call_id
+
+
+def _cache_reasoning_content(
+    call_id: str,
+    reasoning_content: str,
+    *,
+    scope: str | None = None,
+    tool_name: str = "",
+    arguments: str = "",
+    max_entries: int = 200,
+) -> None:
+    """Store reasoning content by scoped call identity and evict oldest entries."""
     if not call_id or not reasoning_content:
         return
 
-    reasoning_content_cache[call_id] = reasoning_content
-    reasoning_content_cache.move_to_end(call_id)
+    cache_key = _reasoning_cache_key(
+        call_id,
+        scope=scope,
+        tool_name=tool_name,
+        arguments=arguments,
+    )
+    reasoning_content_cache[cache_key] = reasoning_content
+    reasoning_content_cache.move_to_end(cache_key)
 
     while len(reasoning_content_cache) > max_entries:
         reasoning_content_cache.popitem(last=False)
+
+
+def _get_cached_reasoning_content(
+    call_id: str,
+    *,
+    scope: str | None = None,
+    tool_name: str = "",
+    arguments: str = "",
+) -> str:
+    """Read cached reasoning without falling back across unrelated namespaces."""
+    cache_key = _reasoning_cache_key(
+        call_id,
+        scope=scope,
+        tool_name=tool_name,
+        arguments=arguments,
+    )
+    cached_reasoning = reasoning_content_cache.get(cache_key, "")
+    if cached_reasoning:
+        reasoning_content_cache.move_to_end(cache_key)
+    return cached_reasoning
 
 def validate_message_sequence(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
@@ -125,6 +175,7 @@ def convert_responses_to_chat_completions(request_data: dict) -> dict:
     
     # Check for previous_response_id and load conversation history if available
     previous_response_id = request_data.get("previous_response_id")
+    reasoning_scope = f"response:{previous_response_id}" if previous_response_id else None
     if previous_response_id and previous_response_id in conversation_history:
         logger.info(f"Loading conversation history from previous_response_id: {previous_response_id}")
         messages = conversation_history[previous_response_id].copy()
@@ -200,12 +251,17 @@ def convert_responses_to_chat_completions(request_data: dict) -> dict:
 
                 # Handle function_call items (assistant's tool calls sent back by client)
                 elif item_type == "function_call":
-                    call_id = item.get("call_id", item.get("id", f"call_{uuid.uuid4().hex}"))
+                    call_id = item.get("call_id") or item.get("id") or f"call_{uuid.uuid4().hex}"
                     tool_name = item.get("name", "")
                     arguments = item.get("arguments", "{}")
 
                     # Look up cached reasoning_content for CoT passback
-                    cached_reasoning = reasoning_content_cache.get(call_id, "")
+                    cached_reasoning = _get_cached_reasoning_content(
+                        call_id,
+                        scope=reasoning_scope,
+                        tool_name=tool_name,
+                        arguments=arguments,
+                    )
                     if cached_reasoning:
                         logger.info(f"[INPUT] function_call: name={tool_name} call_id={call_id} +reasoning={len(cached_reasoning)} chars")
                     else:
@@ -756,7 +812,19 @@ async def process_chat_completions_stream(response, chat_request=None):
                                 
                                 # Cache reasoning for CoT passback
                                 if reasoning_content:
-                                    _cache_reasoning_content(tool_call["id"], reasoning_content)
+                                    _cache_reasoning_content(
+                                        tool_call["id"],
+                                        reasoning_content,
+                                        scope=f"response:{response_id}",
+                                        tool_name=tool_call["function"]["name"],
+                                        arguments=tool_call["function"]["arguments"],
+                                    )
+                                    _cache_reasoning_content(
+                                        tool_call["id"],
+                                        reasoning_content,
+                                        tool_name=tool_call["function"]["name"],
+                                        arguments=tool_call["function"]["arguments"],
+                                    )
                                     logger.info(f"[COT-PASSBACK] Cached reasoning ({len(reasoning_content)} chars) for call_id={tool_call['id']}")
 
                                 # After tool handling, complete the response
@@ -905,7 +973,19 @@ async def process_chat_completions_stream(response, chat_request=None):
                             # When Codex CLI sends these call_ids back, we inject the reasoning
                             if reasoning_content:
                                 for tc in tool_calls.values():
-                                    _cache_reasoning_content(tc["id"], reasoning_content)
+                                    _cache_reasoning_content(
+                                        tc["id"],
+                                        reasoning_content,
+                                        scope=f"response:{response_id}",
+                                        tool_name=tc["function"]["name"],
+                                        arguments=tc["function"]["arguments"],
+                                    )
+                                    _cache_reasoning_content(
+                                        tc["id"],
+                                        reasoning_content,
+                                        tool_name=tc["function"]["name"],
+                                        arguments=tc["function"]["arguments"],
+                                    )
                                 logger.info(f"[COT-PASSBACK] Cached reasoning ({len(reasoning_content)} chars) for {len(tool_calls)} call_ids")
 
                             # After processing all tool calls, complete the response

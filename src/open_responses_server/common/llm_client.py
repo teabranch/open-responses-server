@@ -57,4 +57,4 @@ async def startup_llm_client():
 
 async def shutdown_llm_client():
     """Function to be called on application shutdown."""
-    await LLMClient.close_client() 
+    await LLMClient.close_client()

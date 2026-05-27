@@ -21,7 +21,7 @@ _HEARTBEAT_EVENT = 'event: response.heartbeat\ndata: {"type":"response.heartbeat
 
 
 async def _stream_with_keepalive(async_iter_factory, interval, keepalive_event=_HEARTBEAT_EVENT):
-    """Yield keepalive comments while a producer waits on upstream stream activity.
+    """Yield SSE heartbeat events while a producer waits on upstream stream activity.
 
     Starts the client-facing SSE stream immediately and runs the upstream work
     in a background task, so heartbeats continue even before the backend stream

@@ -2,7 +2,7 @@ import json
 from fastapi import Request
 from fastapi.responses import StreamingResponse, Response, JSONResponse
 from open_responses_server.common.llm_client import LLMClient, get_backend_timeout
-from open_responses_server.common.config import logger, OPENAI_BASE_URL_INTERNAL, OPENAI_API_KEY, MAX_TOOL_CALL_ITERATIONS
+from open_responses_server.common.config import logger, MAX_TOOL_CALL_ITERATIONS
 from open_responses_server.common.mcp_manager import mcp_manager, serialize_tool_result
 
 async def _handle_non_streaming_request(client: LLMClient, request_data: dict):
